@@ -31,7 +31,8 @@ import "./../style/visual.less";
 
 import { STRINGS } from "./strings";
 import { OBJECTS, PANE, PropSpec } from "./formatSpec";
-import { buildModel, cadenceOf, Model, Series, RefKind, RefLine, segmentsOf, Pt, panelValues, gapBands } from "./model";
+import { buildModel, cadenceOf, Model, Series, RefKind, RefLine, segmentsOf, Pt, panelValues, gapBands, SortMode } from "./model";
+import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
@@ -137,11 +138,13 @@ interface Layout {
     legend: boolean; legendRows: LegendItem[][]; legendH: number;
     labels: boolean; labelW: number; y1W: number; y2W: number;
     noticeH: number;
+    /** Franja de zoom (mini-mapa con brush) bajo el eje X: alto reservado y su y. */
+    brushH: number; brushY: number;
 }
 
-interface LegendItem { label: string; color: string; kind: "series" | "ref"; dash: string; series?: Series; ref?: RefKind; w: number; idx: number; }
+interface LegendItem { label: string; color: string; kind: "series" | "ref" | "title"; dash: string; series?: Series; ref?: RefKind; w: number; idx: number; }
 
-interface Drawn { s: Series; y: d3.ScaleLinear<number, number>; segs: Pt[][]; }
+interface Drawn { s: Series; y: d3.ScaleLinear<number, number>; segs: Pt[][]; trend?: (number | null)[]; }
 
 /** Caja ocupada por una etiqueta (anticolisión de eventos, anotaciones y objetivo). */
 interface Box { x0: number; y0: number; x1: number; y1: number; }
@@ -151,6 +154,7 @@ interface PanelState {
     model: Model; g: Sel<SVGGElement>; ox: number; oy: number;
     L: Layout | null; x: (pos: number) => number;
     y1: d3.ScaleLinear<number, number> | null; y2: d3.ScaleLinear<number, number> | null; drawn: Drawn[];
+    visLo: number; visHi: number;
 }
 
 export class Visual implements IVisual {
@@ -217,6 +221,18 @@ export class Visual implements IVisual {
     private selKeys = new Map<string, ISelectionId>();
     private pendingRestore: ISelectionId[] | null = null;
     private fmtCache = new Map<string, valueFormatter.IValueFormatter>();
+    /**
+     * Zoom del eje X (rango de pos), común a todos los paneles. Solo visual: no filtra el informe ni se guarda, y
+     * cambiarlo repinta con render() (sin rendering events). null = todo el eje.
+     */
+    private zoom: [number, number] | null = null;
+    /** El zoom que se dibuja en este render (null si no hay, no cabe o no se puede interactuar). */
+    private zoomEff: [number, number] | null = null;
+    /** Claves del eje visibles en el panel activo (todas sin zoom). */
+    private visLo = 0;
+    private visHi = -1;
+    private resetEl: HTMLButtonElement;
+    private clipCounter = 0;
     private canvasCtx: CanvasRenderingContext2D | null = null;
 
     constructor(options: VisualConstructorOptions) {
@@ -244,6 +260,13 @@ export class Visual implements IVisual {
         this.watermarkEl.appendChild(this.watermarkTitle);
         this.watermarkEl.appendChild(this.watermarkWhy);
         this.root.appendChild(this.watermarkEl);
+        // Botón de zoom: visible solo con zoom aplicado.
+        this.resetEl = document.createElement("button");
+        this.resetEl.type = "button";
+        this.resetEl.className = "lc-zoom-reset";
+        this.resetEl.style.display = "none";
+        this.resetEl.addEventListener("click", (e) => { e.stopPropagation(); this.setZoom(null); });
+        this.root.appendChild(this.resetEl);
         this.injectStyles();
 
         this.subSelectionHelper = HtmlSubSelectionHelper.createHtmlSubselectionHelper({
@@ -642,11 +665,13 @@ export class Visual implements IVisual {
         this.multi = smVals.length > 0 && room && this.previewOf("small multiples");
         const shown = this.multi ? (this.isPro ? smVals : smVals.slice(0, PREVIEW_PANELS)) : [];
         this.models = !dv ? [] : this.multi
-            ? shown.map(v => buildModel(dv, blank, v)).filter((m): m is Model => !!m)
-            : [buildModel(dv, blank)].filter((m): m is Model => !!m);
+            ? shown.map(v => buildModel(dv, blank, v, this.sortMode())).filter((m): m is Model => !!m)
+            : [buildModel(dv, blank, undefined, this.sortMode())].filter((m): m is Model => !!m);
         if (!this.models.length) this.multi = false;
         this.model = this.models[0] ?? null;
         const m = this.model;
+        this.zoomEff = m ? this.effectiveZoom(m) : null;
+        this.updateResetButton();
         if (!m) {
             this.renderLanding(W, H);
             this.renderGuide(W, H);
@@ -696,6 +721,187 @@ export class Visual implements IVisual {
 
     private int(n: number): string { return this.formatter("#,0").format(n); }
 
+    // ── Orden y zoom ─────────────────────────────────────────────────────────
+
+    private sortMode(): SortMode {
+        const v = String(this.settings.xAxis?.sort ?? "data");
+        return (["data", "valueDesc", "valueAsc", "alpha"].indexOf(v) >= 0 ? v : "data") as SortMode;
+    }
+
+    /** Zoom permitido: interruptor de Interactions, interacciones del host (allowInteractions) y fuera del modo formato. */
+    private get zoomable(): boolean {
+        return this.settings.interactions?.zoom !== false && this.canInteract;
+    }
+
+    /** El zoom pedido, recortado al eje actual; null si no se puede, no hay datos que ampliar o cubre todo el eje. */
+    private effectiveZoom(m: Model): [number, number] | null {
+        const z = this.zoom;
+        const K = m.keys.length;
+        if (!z || !this.zoomable || K < 3) return null;
+        const lo = m.keys[0].pos, hi = m.keys[K - 1].pos;
+        const a = Math.max(lo, z[0]), b = Math.min(hi, z[1]);
+        if (b <= a || (a <= lo + 1e-6 && b >= hi - 1e-6)) return null;
+        return [a, b];
+    }
+
+    private updateResetButton(): void {
+        const on = !!this.zoomEff;
+        this.resetEl.style.display = on ? "block" : "none";
+        if (!on) return;
+        this.resetEl.textContent = this.t("UI_ResetZoom", "Reset zoom");
+        const hc = this.hc;
+        this.resetEl.style.background = hc ? this.hcBg : this.bgColor;
+        this.resetEl.style.color = hc ? this.hcFg : this.ink;
+        this.resetEl.style.borderColor = hc ? this.hcFg : "#8A8886";
+    }
+
+    /** Cambia el zoom y repinta SIN rendering events (como el hover): es estado de vista, no un update del host. */
+    private setZoom(z: [number, number] | null): void {
+        this.zoom = z;
+        this.repaint();
+        if (this.hasFocus) this.onFocus();
+    }
+
+    /** Amplía (factor < 1) o reduce alrededor de una posición; como mínimo 3 puntos del eje a la vista. */
+    private zoomAt(center: number, factor: number): void {
+        const m = this.models[0];
+        if (!m || m.keys.length < 3) return;
+        const lo = m.keys[0].pos, hi = m.keys[m.keys.length - 1].pos;
+        const [a, b] = this.zoomEff ?? [lo, hi];
+        const minSpan = m.isTime ? Math.max(m.cadence * 2, 1) : 2;
+        let span = Math.max(minSpan, (b - a) * factor);
+        if (span >= hi - lo) { this.setZoom(null); return; }
+        const t = b > a ? (center - a) / (b - a) : 0.5;
+        let na = center - span * t;
+        na = Math.max(lo, Math.min(hi - span, na));
+        span = Math.min(span, hi - lo);
+        this.setZoom([na, na + span]);
+    }
+
+    /** Desplaza la ventana de zoom para que la posición quede dentro (pan). */
+    private panTo(pos: number): void {
+        const z = this.zoomEff;
+        const m = this.models[0];
+        if (!z || !m) return;
+        const lo = m.keys[0].pos, hi = m.keys[m.keys.length - 1].pos;
+        const span = z[1] - z[0];
+        let a = pos < z[0] ? pos : pos > z[1] ? pos - span : z[0];
+        a = Math.max(lo, Math.min(hi - span, a));
+        this.setZoom([a, a + span]);
+    }
+
+    /** Último punto con valor dentro de lo visible (sin zoom, el último de la serie). */
+    private lastVis(s: Series): number {
+        if (!this.zoomEff) return s.lastIndex;
+        for (let k = Math.min(this.visHi, s.values.length - 1); k >= this.visLo; k--) if (s.values[k] !== null) return k;
+        return -1;
+    }
+
+    private clipId: string | null = null;
+
+    /** Recorte al área del gráfico (solo con zoom): lo que queda fuera de la ventana no se dibuja encima de los ejes. */
+    private plotClip(L: Layout): string {
+        const id = this.hatchId.replace("hatch", "clip") + "-" + (++this.clipCounter);
+        let defs = this.svg.select<SVGDefsElement>("defs");
+        if (defs.empty()) defs = this.svg.insert("defs", ":first-child") as unknown as d3.Selection<SVGDefsElement, unknown, null, undefined>;
+        defs.append("clipPath").attr("id", id).append("rect").attr("x", L.left - 1).attr("y", L.top - 6)
+            .attr("width", L.plotW + 2).attr("height", L.plotH + 12);
+        return id;
+    }
+
+    /**
+     * Línea de tendencia (FC.CART08, gratis). Lineal: mínimos cuadrados sobre los puntos no vacíos de la serie, dibujada
+     * del primero al último (no es una previsión: no se prolonga). Media móvil: N periodos hacia atrás DENTRO de cada
+     * tramo de la línea (con "Break the line" no cruza un hueco). Discontinua, fina, del color de la serie.
+     */
+    private drawTrends(g: d3.Selection<SVGGElement, unknown, null, undefined>, series: Series[]): void {
+        const s = this.settings.trendLine, m = this.model;
+        const w = Number(s.width);
+        const op = this.hc ? 1 : Math.max(0.2, Math.min(1, Number(s.opacity) / 100));
+        const N = Math.max(2, Math.round(Number(s.window)));
+        const linear = String(s.type) !== "movingAverage";
+        const targets = String(s.scope) === "first" ? this.drawn.slice(0, 1) : this.drawn.filter(d => series.indexOf(d.s) >= 0);
+        const line = d3.line<[number, number]>().x(p => p[0]).y(p => p[1]);
+        for (const d of targets) {
+            const trend: (number | null)[] = new Array(m.keys.length).fill(null);
+            const paths: [number, number][][] = [];
+            if (linear) {
+                const pts: [number, number, number][] = [];
+                d.s.values.forEach((v, k) => { if (v !== null) pts.push([m.keys[k].pos, v, k]); });
+                if (pts.length < 2) continue;
+                const n = pts.length;
+                const mx = pts.reduce((a, p) => a + p[0], 0) / n, my = pts.reduce((a, p) => a + p[1], 0) / n;
+                let sxy = 0, sxx = 0;
+                for (const p of pts) { sxy += (p[0] - mx) * (p[1] - my); sxx += (p[0] - mx) * (p[0] - mx); }
+                const b = sxx > 0 ? sxy / sxx : 0, a = my - b * mx;
+                for (let k = pts[0][2]; k <= pts[n - 1][2]; k++) trend[k] = a + b * m.keys[k].pos;
+                const f = pts[0], l = pts[n - 1];
+                paths.push([[this.x(f[0]), d.y(a + b * f[0])], [this.x(l[0]), d.y(a + b * l[0])]]);
+            } else {
+                for (const seg of d.segs) {
+                    const pp: [number, number][] = [];
+                    for (let i = N - 1; i < seg.length; i++) {
+                        let sum = 0;
+                        for (let j = i - N + 1; j <= i; j++) sum += seg[j].v;
+                        const v = sum / N;
+                        if (seg[i].k >= 0) trend[seg[i].k] = v;
+                        pp.push([this.x(seg[i].pos), d.y(v)]);
+                    }
+                    if (pp.length > 1) paths.push(pp);
+                }
+            }
+            d.trend = trend;
+            const color = this.hc ? this.hcFg : d.s.color;
+            const gg = g.append("g").attr("class", "lc-trend").attr("data-id", d.s.id);
+            for (const pp of paths) {
+                gg.append("path").attr("d", line(pp)).attr("fill", "none").attr("stroke", color).attr("stroke-width", w)
+                    .attr("stroke-dasharray", this.hc ? "1,4" : "5,3").attr("stroke-linecap", "round").attr("opacity", op).style("pointer-events", "none");
+            }
+        }
+    }
+
+    /**
+     * Franja de zoom bajo el eje X (FC.CART09): la serie principal en pequeño y un brush de d3. Arrastrar elige el rango;
+     * arrastrar la ventana la mueve; un clic fuera la quita. Solo cambia la vista (setZoom → render sin eventos).
+     */
+    private drawBrush(L: Layout): void {
+        const m = this.model;
+        const K = m.keys.length;
+        const lo = m.keys[0].pos, hi = m.keys[K - 1].pos;
+        const x0 = L.left, x1 = L.left + L.plotW;
+        const sx = d3.scaleLinear().domain([lo, hi]).range([x0, x1]);
+        const y0 = L.brushY, h = L.brushH - 4;
+        const hc = this.hc;
+        const g = this.canvas.append("g").attr("class", "lc-brush").attr("aria-hidden", "true");
+        g.append("rect").attr("x", x0).attr("y", y0).attr("width", L.plotW).attr("height", h).attr("rx", 2)
+            .attr("fill", hc ? this.hcBg : "none").attr("stroke", hc ? this.hcFg : String(this.settings.yAxis.gridColor));
+        const s0 = m.series[0];
+        if (s0) {
+            let vlo = Infinity, vhi = -Infinity;
+            s0.values.forEach(v => { if (v !== null) { vlo = Math.min(vlo, v); vhi = Math.max(vhi, v); } });
+            if (vhi > vlo) {
+                const sy = d3.scaleLinear().domain([vlo, vhi]).range([y0 + h - 2, y0 + 2]);
+                const ln = d3.line<Pt>().x(p => sx(p.pos)).y(p => sy(p.v));
+                for (const seg of segmentsOf(s0.values, m.keys, "connect", s0.cadence, m.cadence, m.isTime)) {
+                    g.append("path").attr("d", ln(seg)).attr("fill", "none").attr("stroke", hc ? this.hcFg : s0.color)
+                        .attr("stroke-width", 1).attr("opacity", hc ? 1 : 0.55);
+                }
+            }
+        }
+        const brush = d3.brushX().extent([[x0, y0], [x1, y0 + h]])
+            .on("end", (ev: d3.D3BrushEvent<unknown>) => {
+                if (!ev.sourceEvent) return;   // movimiento programático (al repintar): no es del usuario
+                const sel = ev.selection as [number, number] | null;
+                if (!sel || Math.abs(sel[1] - sel[0]) < 4) { this.setZoom(null); return; }
+                this.setZoom([sx.invert(sel[0]), sx.invert(sel[1])]);
+            });
+        const bg = g.append("g").attr("class", "lc-brush-area");
+        bg.call(brush as any);
+        bg.selectAll(".selection").attr("fill", hc ? this.hcFg : this.ink).attr("fill-opacity", hc ? 0.35 : 0.12)
+            .attr("stroke", hc ? this.hcFg : this.ink).attr("stroke-opacity", 0.5);
+        if (this.zoomEff) bg.call(brush.move as any, [sx(this.zoomEff[0]), sx(this.zoomEff[1])]);
+    }
+
     // ── Nota de fuente (gratis) ──────────────────────────────────────────────
 
     /** Alto de la nota de fuente (0 si está apagada, vacía o no cabe: en un mosaico pequeño manda el gráfico). */
@@ -704,7 +910,8 @@ export class Visual implements IVisual {
         if (!n?.show || !String(n.text ?? "").trim() || W < 120) return 0;
         const fs = Number(n.fontSize);
         const h = Math.ceil(fs * 1.25) + 6;
-        return H - h >= 100 ? h : 0;
+        // Se va antes que las etiquetas de los eventos (orden de la colección: leyenda, títulos, nota, eventos).
+        return H - h >= 150 ? h : 0;
     }
 
     private drawSourceNote(W: number, H: number, h: number): void {
@@ -741,7 +948,7 @@ export class Visual implements IVisual {
     // ── Paneles ──────────────────────────────────────────────────────────────
 
     private newPanel(model: Model, g: Sel<SVGGElement>, ox: number, oy: number): PanelState {
-        const p: PanelState = { model, g, ox, oy, L: null, x: () => 0, y1: null, y2: null, drawn: [] };
+        const p: PanelState = { model, g, ox, oy, L: null, x: () => 0, y1: null, y2: null, drawn: [], visLo: 0, visHi: model.keys.length - 1 };
         this.panels.push(p);
         this.curPanel = p;
         this.model = model; this.canvas = g; this.drawn = []; this.L = null;
@@ -749,7 +956,7 @@ export class Visual implements IVisual {
     }
 
     private savePanel(p: PanelState): void {
-        p.L = this.L; p.x = this.x; p.y1 = this.y1; p.y2 = this.y2; p.drawn = this.drawn;
+        p.L = this.L; p.x = this.x; p.y1 = this.y1; p.y2 = this.y2; p.drawn = this.drawn; p.visLo = this.visLo; p.visHi = this.visHi;
     }
 
     /** El puntero o el teclado pasan a este panel: el resto del código trabaja sobre this.model, this.x, etc. */
@@ -757,6 +964,7 @@ export class Visual implements IVisual {
         if (!p) return;
         this.curPanel = p;
         this.model = p.model; this.canvas = p.g; this.L = p.L; this.x = p.x; this.y1 = p.y1; this.y2 = p.y2; this.drawn = p.drawn;
+        this.visLo = p.visLo; this.visHi = p.visHi;
     }
 
     /**
@@ -865,23 +1073,34 @@ export class Visual implements IVisual {
         return m.series.some(x => x.role === "values") ? "values" : "secondaryValues";
     }
 
+    /**
+     * Formato del eje: el formato dinámico (general.formatString por punto) del PRIMER punto visible de la primera serie
+     * del eje; si no tiene, el de la medida. Así un grupo de cálculo o una cadena DAX dinámica manda también en el eje.
+     */
     private yFormat(role: "values" | "secondaryValues"): string | undefined {
         const s = this.model?.series.find(x => x.role === role);
-        return s?.format;
+        if (!s) return undefined;
+        const hi = this.visHi >= 0 ? this.visHi : s.values.length - 1;
+        for (let k = Math.max(0, this.visLo); k <= hi; k++) if (s.values[k] !== null) return s.formats[k] ?? s.format;
+        return s.format;
     }
 
     private domainOf(role: "values" | "secondaryValues", zero: boolean, withRefs: boolean, models: Model[] = [this.model]): [number, number] | null {
         let lo = Infinity, hi = -Infinity;
         const take = (v: number | null) => { if (v !== null && isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } };
         const targetOn = !!this.settings.targetLine?.show;
+        // Con zoom y "Y auto-fit", la escala Y sale solo de lo visible.
+        const z = this.zoomEff && this.settings.interactions?.yAutoFit !== false ? this.zoomEff : null;
         for (const m of models) {
+            const vis = (k: number) => !z || (m.keys[k].pos >= z[0] - 1e-6 && m.keys[k].pos <= z[1] + 1e-6);
+            const takeAll = (a: (number | null)[]) => a.forEach((v, k) => { if (vis(k)) take(v); });
             for (const s of m.series) {
                 if (s.role !== role) continue;
-                s.values.forEach(take);
-                if (withRefs) for (const r of s.refs) r.values.forEach(take);
+                takeAll(s.values);
+                if (withRefs) for (const r of s.refs) takeAll(r.values);
             }
             // La línea de objetivo va en el eje principal: cuenta en su escala (no se sale por arriba).
-            if (targetOn && m.target && this.primaryRole(m) === role) m.target.values.forEach(take);
+            if (targetOn && m.target && this.primaryRole(m) === role) takeAll(m.target.values);
         }
         if (lo === Infinity) return null;
         if (this.settings.lines.missing === "zero" || zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
@@ -899,6 +1118,13 @@ export class Visual implements IVisual {
         const hasY2 = m.series.some(x => x.role === "secondaryValues");
         const hasY1 = m.series.some(x => x.role === "values");
 
+        // Claves visibles (zoom): antes de los dominios y del formato del eje.
+        const zf = this.zoomEff;
+        this.visLo = 0; this.visHi = m.keys.length - 1;
+        if (zf) {
+            while (this.visLo < this.visHi && m.keys[this.visLo].pos < zf[0] - 1e-6) this.visLo++;
+            while (this.visHi > this.visLo && m.keys[this.visHi].pos > zf[1] + 1e-6) this.visHi--;
+        }
         const sd = this.sharedDomains;
         const d1 = sd ? sd.d1 : this.domainOf(hasY1 ? "values" : "secondaryValues", s.yAxis.zero, refsOn);
         const d2 = sd ? (hasY1 && hasY2 ? sd.d2 : null) : (hasY1 && hasY2 ? this.domainOf("secondaryValues", s.y2Axis.zero, false) : null);
@@ -915,34 +1141,47 @@ export class Visual implements IVisual {
         // X
         const keys = m.keys;
         const K = keys.length;
+        const fullLo = keys[0].pos, fullHi = keys[K - 1].pos;
         if (m.isTime) {
-            const lo = keys[0].pos, hi = keys[K - 1].pos;
             const pad = K === 1 ? m.cadence / 2 : 0;
-            const sx = d3.scaleTime().domain([new Date(lo - pad), new Date(hi + pad)]).range([L.left, L.left + L.plotW]);
+            const dom = zf ?? [fullLo - pad, fullHi + pad];
+            const sx = d3.scaleTime().domain([new Date(dom[0]), new Date(dom[1])]).range([L.left, L.left + L.plotW]);
             this.x = (p: number) => sx(new Date(p));
             if (L.xAxis) this.drawTimeAxis(sx, L);
         } else {
-            const inset = K === 1 ? L.plotW / 2 : Math.min(L.plotW / (K * 2), 12);
-            const sx = d3.scaleLinear().domain([0, Math.max(1, K - 1)]).range([L.left + inset, L.left + L.plotW - inset]);
+            const Kv = this.visHi - this.visLo + 1;
+            const inset = K === 1 ? L.plotW / 2 : Math.min(L.plotW / (Kv * 2), 12);
+            const dom = zf ?? [0, Math.max(1, K - 1)];
+            const sx = d3.scaleLinear().domain(dom).range([L.left + inset, L.left + L.plotW - inset]);
             this.x = K === 1 ? () => L.left + L.plotW / 2 : (p: number) => sx(p);
             if (L.xAxis) this.drawCatAxis(L);
         }
         if (mode === "full") this.drawYAxes(L, hasY1, hasY2);
 
-        // Capas: banda debajo de todo, luego referencias y líneas.
-        const gEvents = this.canvas.append("g").attr("class", "lc-events");
-        const gBands = this.canvas.append("g").attr("class", "lc-bands");
-        const gRefs = this.canvas.append("g").attr("class", "lc-refs");
-        const gTarget = this.canvas.append("g").attr("class", "lc-target");
-        const gLines = this.canvas.append("g").attr("class", "lc-lines");
-        this.canvas.append("g").attr("class", "lc-sel");
+        // Capas: banda debajo de todo, luego referencias y líneas. Con zoom, todo lo de dentro del área se recorta a ella.
+        const clip = zf ? this.plotClip(L) : null;
+        const layer = (cls: string) => {
+            const g = this.canvas.append("g").attr("class", cls);
+            if (clip) g.attr("clip-path", `url(#${clip})`);
+            return g;
+        };
+        const gEvents = layer("lc-events");
+        const gBands = layer("lc-bands");
+        const gRefs = layer("lc-refs");
+        const gTarget = layer("lc-target");
+        const gTrend = layer("lc-trends");
+        const gLines = layer("lc-lines");
+        layer("lc-sel");
         this.canvas.append("g").attr("class", "lc-cross");
+        this.clipId = clip;
 
         const missing = String(s.lines.missing);
         const lw = Number(s.lines.width);
-        const line = d3.line<Pt>().x(p => this.x(p.pos)).y(() => 0);
+        // Suavizado (FT.LINE02): monótona en X, nunca inventa máximos ni mínimos entre puntos; respeta los huecos.
+        const line = d3.line<Pt>().x(p => this.x(p.pos)).y(() => 0).curve(s.lines.smooth ? d3.curveMonotoneX : d3.curveLinear);
         const markerMode = String(s.lines.markers);
-        const showMarkers = mode !== "spark" && (markerMode === "on" || (markerMode === "auto" && K <= 40 && L.plotW / K >= 10) || hc);
+        const Kv = this.visHi - this.visLo + 1;
+        const showMarkers = mode !== "spark" && (markerMode === "on" || (markerMode === "auto" && Kv <= 40 && L.plotW / Kv >= 10) || hc);
         const series = mode === "spark" ? m.series.slice(0, 8) : m.series;
         // Banda real-vs-referencia (Pro): no en el mosaico pequeño (< 220 × 140), donde solo sería ruido.
         const bandOn = refsOn && mode === "full" && !!s.references.gapShading && this.previewOf("gap shading");
@@ -981,17 +1220,20 @@ export class Visual implements IVisual {
                 const step = Math.max(1, Math.ceil(K / 16));
                 const off = Math.round((si * step) / Math.max(1, Math.min(series.length, 8))) % step;
                 ser.values.forEach((v, k) => {
-                    if (v === null || (hc && step > 1 && (k % step) !== off)) return;
+                    if (v === null || k < this.visLo || k > this.visHi || (hc && step > 1 && (k % step) !== off)) return;
                     const cx = this.x(keys[k].pos), cy = y(v);
                     if (sym) g.append("path").attr("class", "lc-marker").attr("d", sym()).attr("transform", `translate(${cx},${cy})`)
                         .attr("fill", this.hcBg).attr("stroke", color).attr("stroke-width", 1.5);
+                    // Formato condicional (fx) del color: la regla pinta cada marcador (la línea sigue en su color).
                     else g.append("circle").attr("class", "lc-marker").attr("cx", cx).attr("cy", cy).attr("r", Number(s.lines.markerSize))
-                        .attr("fill", color).attr("stroke", this.bgColor).attr("stroke-width", 1);
+                        .attr("fill", ser.ruleColors?.[k] ?? color).attr("stroke", this.bgColor).attr("stroke-width", 1);
                 });
             }
             if (refsOn) this.drawRefs(gRefs, ser, y);
             if (bandOn) this.drawBand(gBands, ser, y, segs);
         });
+
+        if (mode !== "spark" && s.trendLine.show) this.drawTrends(gTrend, series);
 
         // Objetivo (gratis) sobre las referencias; eventos (Pro) detrás de las líneas; anotaciones (Pro) encima de todo.
         const evBoxes: Box[] = [];
@@ -1004,6 +1246,7 @@ export class Visual implements IVisual {
         if (mode === "spark") this.drawSparkValue(L);
         if (L.noticeH) this.drawNotices(L);
         this.drawOverlay(L);
+        if (L.brushH) this.drawBrush(L);
     }
 
     /** La referencia contra la que se mide la serie real: el plan si hay, si no el año anterior. */
@@ -1025,11 +1268,13 @@ export class Visual implements IVisual {
         const gg = g.append("g").attr("class", "lc-band").attr("data-id", ser.id).attr("data-kind", ref.kind);
         const hc = this.hc;
         if (hc) this.ensureHatches();
+        const smooth = !!this.settings.lines.smooth;
+        const area = d3.area<{ pos: number; a: number; b: number }>().x(p => this.x(p.pos)).y0(p => y(p.b)).y1(p => y(p.a)).curve(d3.curveMonotoneX);
         for (const b of bands) {
             const fwd = b.pts.map(p => this.x(p.pos).toFixed(2) + "," + y(p.a).toFixed(2));
             const back = b.pts.slice().reverse().map(p => this.x(p.pos).toFixed(2) + "," + y(p.b).toFixed(2));
             const up = b.sign > 0;
-            gg.append("path").attr("class", up ? "lc-band-up" : "lc-band-down").attr("d", "M" + fwd.concat(back).join("L") + "Z")
+            gg.append("path").attr("class", up ? "lc-band-up" : "lc-band-down").attr("d", smooth ? area(b.pts) : "M" + fwd.concat(back).join("L") + "Z")
                 .attr("fill", hc ? `url(#${this.hatchId}-${up ? "up" : "down"})` : String(up ? s.aboveColor : s.belowColor))
                 .attr("fill-opacity", hc ? 1 : op).attr("stroke", "none").style("pointer-events", "none");
         }
@@ -1051,7 +1296,7 @@ export class Visual implements IVisual {
         const L: Layout = {
             mode, W, H, left: 4, right: 4, top: 4, bottom: 4, plotW: 0, plotH: 0,
             xAxis: false, yAxis: false, y2Axis: false, xTitle: false, yTitle: false, y2Title: false,
-            legend: false, legendRows: [], legendH: 0, labels: false, labelW: 0, y1W: 0, y2W: 0, noticeH: 0,
+            legend: false, legendRows: [], legendH: 0, labels: false, labelW: 0, y1W: 0, y2W: 0, noticeH: 0, brushH: 0, brushY: 0,
         };
         if (mode === "spark") {
             const s0 = m.series[0];
@@ -1108,10 +1353,12 @@ export class Visual implements IVisual {
             const cap = cands.some(c => c.vari) ? 0.38 : 0.3;
             if (lab > 0) { L.labels = true; L.labelW = Math.min(lab + 16, W * cap); }
         }
+        // Franja de zoom: un panel, con sitio y con zoom permitido (no en small multiples: Ctrl+rueda y teclado).
+        L.brushH = !inPanel && this.zoomable && m.keys.length >= 3 && H >= 240 && W >= 320 ? 16 : 0;
         const compute = () => {
             L.top = 6 + (L.legend && s.legend.position === "top" ? L.legendH : 0);
             L.bottom = 4 + L.noticeH + (L.legend && s.legend.position === "bottom" ? L.legendH : 0) +
-                (L.xAxis ? xfs + 8 : 0) + (L.xTitle ? xfs + 8 : 0);
+                (L.xAxis ? xfs + 8 : 0) + (L.xTitle ? xfs + 8 : 0) + L.brushH;
             L.left = 6 + (L.yAxis ? L.y1W : 0) + (L.yTitle ? yfs + 8 : 0);
             L.right = 8 + (L.labels ? L.labelW : 0) + (L.y2Axis ? L.y2W : 0) + (L.y2Title ? y2fs + 8 : 0);
             L.plotW = W - L.left - L.right;
@@ -1121,6 +1368,7 @@ export class Visual implements IVisual {
         const drops: (() => boolean)[] = [
             () => (L.legend ? (L.legend = false, true) : false),
             () => (L.xTitle || L.yTitle || L.y2Title ? (L.xTitle = L.yTitle = L.y2Title = false, true) : false),
+            () => (L.brushH ? (L.brushH = 0, true) : false),
             () => (L.labels ? (L.labels = false, true) : false),
             () => (L.y2Axis ? (L.y2Axis = false, true) : false),
             () => (L.xAxis ? (L.xAxis = false, true) : false),
@@ -1132,6 +1380,7 @@ export class Visual implements IVisual {
         }
         L.plotW = Math.max(1, L.plotW);
         L.plotH = Math.max(1, L.plotH);
+        L.brushY = L.top + L.plotH + (L.xAxis ? xfs + 8 : 0) + (L.xTitle ? xfs + 8 : 0) + 3;
         return L;
     }
 
@@ -1170,15 +1419,16 @@ export class Visual implements IVisual {
         const s = this.settings, m = this.model;
         const fs = Number(s.xAxis.fontSize);
         const K = m.keys.length;
-        const labels = m.keys.map((_k, i) => this.keyLabel(i));
+        const lo = Math.max(0, this.visLo), hi = this.visHi >= 0 ? this.visHi : K - 1;
+        const labels = m.keys.map((_k, i) => (i >= lo && i <= hi ? this.keyLabel(i) : ""));
         const widest = Math.max(...labels.map(l => this.measure(l, fs)));
-        const slot = L.plotW / Math.max(1, K);
+        const slot = L.plotW / Math.max(1, hi - lo + 1);
         const maxW = Math.max(30, Math.min(widest, 140));
         const every = Math.max(1, Math.ceil((maxW + 8) / slot));
         const g = this.canvas.append("g").attr("class", "lc-x lc-axis");
         const y = L.top + L.plotH;
         const color = this.axisColor("xAxis");
-        for (let i = 0; i < K; i += every) {
+        for (let i = lo; i <= hi; i += every) {
             const x = this.x(m.keys[i].pos);
             const room = Math.max(20, Math.min(slot * every - 6, 160));
             g.append("text").attr("x", x).attr("y", y + 5 + fs * 0.8).attr("text-anchor", "middle").style("font-size", fs + "px")
@@ -1348,10 +1598,14 @@ export class Visual implements IVisual {
         const xl = L.left, xr = L.left + L.plotW;
         const clamp = (x: number) => Math.max(xl, Math.min(xr, x));
         const pts: { k: number; x: number; v: number }[] = [];
-        t.values.forEach((v, k) => { if (v !== null) pts.push({ k, x: this.x(m.keys[k].pos), v }); });
+        // Con zoom: lo visible y un periodo a cada lado (para que el escalón llegue al borde); la etiqueta, el último visible.
+        const kLo = this.zoomEff ? this.visLo - 1 : 0, kHi = this.zoomEff ? this.visHi + 1 : t.values.length - 1;
+        t.values.forEach((v, k) => { if (v !== null && k >= kLo && k <= kHi) pts.push({ k, x: this.x(m.keys[k].pos), v }); });
         if (!pts.length) return;
         let d = "";
         let endX = xr, endV = pts[pts.length - 1].v, endK = pts[pts.length - 1].k;
+        // Tramos horizontales por periodo (para el fx del color: cada periodo con el color de su regla).
+        const pieces: { x0: number; x1: number; y: number; k: number }[] = [];
         if (t.constant) {
             const yy = y(pts[0].v);
             d = `M${xl.toFixed(2)},${yy.toFixed(2)}H${xr.toFixed(2)}`;
@@ -1380,14 +1634,31 @@ export class Visual implements IVisual {
                 for (let i = 0; i < n; i++) {
                     if (i > 0 && sg[i].v !== sg[i - 1].v) d += `V${y(sg[i].v).toFixed(2)}`;
                     d += `H${clamp(b[i + 1]).toFixed(2)}`;
+                    pieces.push({ x0: clamp(b[i]), x1: clamp(b[i + 1]), y: y(sg[i].v), k: sg[i].k });
                 }
                 endX = clamp(b[n]); endV = sg[n - 1].v; endK = sg[n - 1].k;
             }
         }
-        g.append("path").attr("class", "lc-target-line").attr("d", d).attr("fill", "none").attr("stroke", color)
+        const rules = this.hc ? null : t.ruleColors;
+        const baseColor = rules && t.constant ? (rules[endK] ?? rules.filter(c => !!c).pop() ?? color) : color;
+        g.append("path").attr("class", "lc-target-line").attr("d", d).attr("fill", "none").attr("stroke", baseColor)
             .attr("stroke-width", w).attr("stroke-dasharray", dash || null).attr("stroke-linecap", "round")
             .style("pointer-events", this.formatMode ? null : "none");
+        if (rules && !t.constant) {
+            for (const pc of pieces) {
+                const rc = rules[pc.k];
+                if (!rc || pc.x1 <= pc.x0) continue;
+                g.append("path").attr("class", "lc-target-rule").attr("d", `M${pc.x0.toFixed(2)},${pc.y.toFixed(2)}H${pc.x1.toFixed(2)}`)
+                    .attr("fill", "none").attr("stroke", rc).attr("stroke-width", w + 0.5).attr("stroke-dasharray", dash || null)
+                    .style("pointer-events", "none");
+            }
+        }
         if (!s.showLabel || L.mode !== "full") return;
+        if (this.zoomEff) {
+            const lastIn = pts.filter(p => p.k <= this.visHi).pop();
+            if (!lastIn) return;
+            endK = lastIn.k; endV = lastIn.v; endX = xr;
+        }
         const fs = Number(s.fontSize);
         const txt = this.fit(t.name + "  " + this.fmtShort(endV, t.formats[endK] ?? t.format), fs, Math.max(40, L.plotW * 0.45));
         if (!txt) return;
@@ -1397,7 +1668,7 @@ export class Visual implements IVisual {
         const ty = above ? ly - 5 : ly + fs + 3;
         const lbl = this.canvas.append("text").attr("class", "lc-target-label").attr("x", endX - 3).attr("y", ty)
             .attr("text-anchor", "end").style("font-size", fs + "px").style("font-weight", "600")
-            .attr("fill", this.readable(color, this.ink)).attr("stroke", this.bgColor).attr("stroke-width", 3)
+            .attr("fill", this.readable(rules?.[endK] ?? baseColor, this.ink)).attr("stroke", this.bgColor).attr("stroke-width", 3)
             .attr("stroke-linejoin", "round").style("paint-order", "stroke").style("pointer-events", this.formatMode ? null : "none").text(txt);
         lbl.append("title").text(t.name);
         boxes.push({ x0: endX - 3 - tw, y0: ty - fs, x1: endX - 3, y1: ty + 3 });
@@ -1413,14 +1684,14 @@ export class Visual implements IVisual {
         const color = this.hc ? this.hcFg : (s.color ? String(s.color) : this.axisColor("xAxis"));
         const dash = this.lineDash(String(s.lineStyle), 1);
         const items: { k: number; t: string; x: number }[] = [];
-        m.events.forEach((t, k) => { if (t) items.push({ k, t, x: this.x(m.keys[k].pos) }); });
+        m.events.forEach((t, k) => { if (t && k >= this.visLo && k <= this.visHi) items.push({ k, t, x: this.x(m.keys[k].pos) }); });
         for (const it of items) {
             g.append("line").attr("class", "lc-event").attr("x1", it.x).attr("x2", it.x).attr("y1", L.top).attr("y2", L.top + L.plotH)
                 .attr("stroke", color).attr("stroke-width", 1).attr("stroke-dasharray", dash || null).attr("stroke-linecap", "round")
                 .attr("opacity", this.hc ? 1 : 0.8).style("pointer-events", this.formatMode ? null : "none");
         }
         // Visual pequeño: solo las líneas (las etiquetas taparían los datos; el texto sigue en el tooltip).
-        if (!s.showLabels || L.mode !== "full" || L.plotH < 160 || L.plotW < 300) return;
+        if (!s.showLabels || L.mode !== "full" || L.plotH < 100 || L.plotW < 220) return;
         const fs = Number(s.fontSize);
         const rowH = fs + 7;
         const maxRows = Math.max(1, Math.min(4, Math.floor((L.plotH * 0.3) / rowH)));
@@ -1491,12 +1762,12 @@ export class Visual implements IVisual {
             const y = yOf(d.s);
             d.s.notes.forEach((t, k) => {
                 const v = d.s.values[k];
-                if (t && v !== null) items.push({ ser: d.s, k, t, x: this.x(this.model.keys[k].pos), y: y(v) });
+                if (t && v !== null && k >= this.visLo && k <= this.visHi) items.push({ ser: d.s, k, t, x: this.x(this.model.keys[k].pos), y: y(v) });
             });
         }
         items.sort((a, b) => a.x - b.x);
         // Visual pequeño: solo el punto resaltado (las cajas taparían la línea); el texto, en el tooltip.
-        let placed = L.plotH >= 150 && L.plotW >= 260 ? 0 : Infinity;
+        let placed = L.plotH >= 110 && L.plotW >= 240 ? 0 : Infinity;
         const h = fs + 8;
         for (const it of items) {
             const ng = g.append("g").attr("class", "lc-note").attr("data-id", it.ser.id);
@@ -1568,22 +1839,23 @@ export class Visual implements IVisual {
     }
 
     /** head = el nombre (lo que se acorta primero); rest = valor y fecha; vari = el desvío (Pro). */
-    private labelCandidates(): { s: Series; text: string; v: number; head: string; rest: string; vari: string; sign: number }[] {
+    private labelCandidates(): { s: Series; text: string; v: number; head: string; rest: string; vari: string; sign: number; li: number }[] {
         const m = this.model, s = this.settings;
         const content = String(s.endLabels.content);
-        const lastPos = m.keys[m.keys.length - 1]?.pos;
+        const lastPos = m.keys[this.visHi >= 0 ? this.visHi : m.keys.length - 1]?.pos;
         const varOn = String(s.endLabels.variance) !== "off" && this.previewOf("variance label");
-        const out = m.series.filter(x => x.lastIndex >= 0).map(x => {
-            const v = x.values[x.lastIndex];
-            const val = this.fmtShort(v, x.formats[x.lastIndex] ?? x.format);
+        const out = m.series.filter(x => this.lastVis(x) >= 0).map(x => {
+            const li = this.lastVis(x);
+            const v = x.values[li];
+            const val = this.fmtShort(v, x.formats[li] ?? x.format);
             const head = content === "value" ? "" : x.name;
             let rest = content === "value" ? val : content === "name" ? "" : "  " + val;
-            // Si su último valor es anterior al final del eje, se dice cuándo.
-            if (content !== "name" && m.keys[x.lastIndex].pos < lastPos) rest += " · " + this.keyLabel(x.lastIndex);
-            const vt = varOn ? this.varianceText(x, x.lastIndex) : null;
+            // Si su último valor es anterior al final del eje (o de lo visible), se dice cuándo.
+            if (content !== "name" && m.keys[li].pos < lastPos) rest += " · " + this.keyLabel(li);
+            const vt = varOn ? this.varianceText(x, li) : null;
             const vari = vt ? vt.text : "";
             const text = head + rest + (vari ? " · " + vari : "");
-            return { s: x, text, v, head, rest, vari, sign: vt ? vt.sign : 0 };
+            return { s: x, text, v, head, rest, vari, sign: vt ? vt.sign : 0, li };
         });
         out.sort((a, b) => b.v - a.v);
         return out.slice(0, Math.max(1, Number(s.endLabels.maxLabels)));
@@ -1606,7 +1878,7 @@ export class Visual implements IVisual {
         const tx = x0 + 12;
         const maxW = L.labelW - 14;
         for (const it of items) {
-            const px = this.x(this.model.keys[it.s.lastIndex].pos);
+            const px = this.x(this.model.keys[it.li].pos);
             const color = this.hc ? this.hcFg : (s.endLabels.seriesColor ? this.readable(it.s.color, String(s.endLabels.color)) : String(s.endLabels.color));
             const lg = g.append("g").attr("class", "lc-endlabel").attr("data-id", it.s.id);
             // Línea guía: del último punto a la etiqueta, si está desplazada o el punto no llega al final.
@@ -1671,7 +1943,9 @@ export class Visual implements IVisual {
             for (const k of kinds) items.push({ label: this.refName(k), color: this.refColor(k, null),
                 kind: "ref", dash: REF_DASH[k], ref: k, w: 0, idx: -1 });
         }
-        for (const it of items) it.w = 22 + Math.min(this.measure(it.label, fs), 160) + 12;
+        // Título de la leyenda (el campo Legend), si se pide y hay campo.
+        if (s.legend.title && m.legendCol) items.unshift({ label: m.legendName, color: "", kind: "title", dash: "", w: 0, idx: -1 });
+        for (const it of items) it.w = it.kind === "title" ? Math.min(this.measure(it.label, fs, true), 160) + 12 : 22 + Math.min(this.measure(it.label, fs), 160) + 12;
         return items;
     }
 
@@ -1700,6 +1974,12 @@ export class Visual implements IVisual {
             const cy = y0 + ri * (fs + 8) + fs / 2 + 4;
             row.forEach((it, ii) => {
                 const last = ri === L.legendRows.length - 1 && ii === row.length - 1 && shown < all.length;
+                if (it.kind === "title") {
+                    g.append("text").attr("class", "lc-legend-title").attr("x", x).attr("y", cy).attr("dy", "0.32em").style("font-size", fs + "px")
+                        .style("font-weight", "600").attr("fill", color).text(this.fit(it.label, fs, 160));
+                    x += it.w;
+                    return;
+                }
                 const ig = g.append("g").attr("class", "lc-legend-item").attr("role", "listitem")
                     .attr("data-id", it.series ? it.series.id : "ref:" + it.ref);
                 ig.append("line").attr("x1", x).attr("x2", x + 16).attr("y1", cy).attr("y2", cy).attr("stroke", it.color)
@@ -1757,7 +2037,15 @@ export class Visual implements IVisual {
         r.on("pointermove", (e: PointerEvent) => { this.activate(p); this.onMove(e); })
             .on("pointerleave", () => { this.activate(p); this.hoverId = null; this.drawCross(-1); this.hideTip(); this.paintState(); })
             .on("click", (e: MouseEvent) => { this.activate(p); this.onClick(e); })
-            .on("contextmenu", (e: MouseEvent) => { this.activate(p); this.onContext(e); });
+            .on("contextmenu", (e: MouseEvent) => { this.activate(p); this.onContext(e); })
+            // Zoom con Ctrl (o Cmd) + rueda; sin Ctrl la rueda es del informe (no se secuestra el scroll).
+            .on("wheel", (e: WheelEvent) => {
+                if (!(e.ctrlKey || e.metaKey) || !this.zoomable) return;
+                e.preventDefault(); e.stopPropagation();
+                this.activate(p);
+                const [px] = this.localXY(e);
+                this.zoomAt(this.model.keys[this.nearestKey(px)].pos, e.deltaY < 0 ? 0.8 : 1.25);
+            });
         const node = this.svg.node() as SVGSVGElement;
         node.setAttribute("tabindex", L.mode === "full" || this.multi ? "0" : "-1");
         node.setAttribute("role", "application");
@@ -1770,7 +2058,7 @@ export class Visual implements IVisual {
     private nearestKey(px: number): number {
         const m = this.model;
         const K = m.keys.length;
-        let lo = 0, hi = K - 1;
+        let lo = Math.max(0, this.visLo), hi = this.visHi >= 0 ? Math.min(K - 1, this.visHi) : K - 1;
         while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (this.x(m.keys[mid].pos) < px) lo = mid; else hi = mid; }
         return Math.abs(this.x(m.keys[lo].pos) - px) <= Math.abs(this.x(m.keys[hi].pos) - px) ? lo : hi;
     }
@@ -1869,7 +2157,7 @@ export class Visual implements IVisual {
             const v = d.s.values[k];
             if (v === null) return;
             const focused = this.hasFocus && i === this.focusSeries;
-            g.append("circle").attr("cx", x).attr("cy", d.y(v)).attr("r", focused ? 5.5 : 3.5)
+            g.append("circle").attr("class", focused ? "lc-focus" : null).attr("cx", x).attr("cy", d.y(v)).attr("r", focused ? 5.5 : 3.5)
                 .attr("fill", this.bgColor).attr("stroke", this.hc ? (focused ? this.hcSel : this.hcFg) : d.s.color)
                 .attr("stroke-width", focused ? 3 : 2).style("pointer-events", "none");
         });
@@ -1892,6 +2180,10 @@ export class Visual implements IVisual {
                 if (r.values[k] === null) continue;
                 const nm = m.legendCol ? r.name + " · " + (s.legend ?? "") : r.name;
                 items.push({ displayName: nm, value: this.fmtFull(r.values[k], r.formats[k] ?? r.format), color: this.hc ? this.hcFg : "#8A8886" });
+            }
+            const tr = this.drawn.find(d => d.s === s)?.trend?.[k];
+            if (tr !== undefined && tr !== null && s.values[k] !== null) {
+                items.push({ displayName: this.t("UI_Trend", "Trend") + " · " + s.name, value: this.fmtFull(tr, s.formats[k] ?? s.format), color: this.hc ? this.hcFg : s.color });
             }
             if (notesOn && s.notes?.[k]) {
                 items.push({ displayName: m.legendCol ? m.notesField.name + " · " + (s.legend ?? "") : m.notesField.name, value: s.notes[k] });
@@ -2077,6 +2369,8 @@ export class Visual implements IVisual {
         if (this.eventsOn() && m.events[k]) extra += ". " + m.eventsField.name + ": " + m.events[k];
         if (this.notesOn() && d.s.notes?.[k]) extra += ". " + m.notesField.name + ": " + d.s.notes[k];
         this.live.textContent = panel + d.s.name + ", " + this.keyLabel(k) + ": " + this.fmtFull(v, d.s.formats[k] ?? d.s.format) + extra;
+        // El punto enfocado lleva su propia etiqueta accesible (además de la región viva).
+        this.canvas.select(".lc-cross .lc-focus").attr("role", "img").attr("aria-label", this.live.textContent);
     }
 
     private onKey(e: KeyboardEvent): void {
@@ -2107,7 +2401,12 @@ export class Visual implements IVisual {
                 break;
             }
             case "Escape":
+                if (this.zoomEff) { this.setZoom(null); break; }
                 if (this.canInteract) { this.selKeys.clear(); this.selectionManager.clear(); this.paintState(); }
+                break;
+            case "+": case "=": case "-": case "_":
+                if (!this.zoomable) { handled = false; break; }
+                this.zoomAt(m.keys[Math.max(0, this.focusKey)].pos, e.key === "+" || e.key === "=" ? 0.7 : 1.45);
                 break;
             case "ContextMenu": case "F10": {
                 if (e.key === "F10" && !e.shiftKey) { handled = false; break; }
@@ -2121,7 +2420,12 @@ export class Visual implements IVisual {
             }
             default: handled = false;
         }
-        if (handled) { e.preventDefault(); e.stopPropagation(); this.announce(); }
+        if (handled) {
+            e.preventDefault(); e.stopPropagation();
+            // Con zoom, el foco que sale de lo visible arrastra la ventana (pan con las flechas).
+            if (this.zoomEff && (this.focusKey < this.visLo || this.focusKey > this.visHi)) this.panTo(m.keys[this.focusKey].pos);
+            this.announce();
+        }
     }
 
     // ── Landing, asistente ───────────────────────────────────────────────────
@@ -2207,9 +2511,11 @@ export class Visual implements IVisual {
             li.appendChild(sp);
             steps.appendChild(li);
         };
-        step(1, axis, big ? this.t("Landing_Step1", "a date column (or a date hierarchy, or categories)") : this.t("Landing_Step1Short", "a date column"));
-        step(2, val, big ? this.t("Landing_Step2", "one or more measures; Secondary values go on a right axis") : this.t("Landing_Step2Short", "one or more measures"));
-        step(3, leg, big ? this.t("Landing_Step3", "optional: one line per brand, region or team. Plan and Prior year as grey references") : this.t("Landing_Step3Short", "optional: one line per item"));
+        // Asistente de inicio (S18): tres pasos con el nombre de cada pozo, como el resto de la colección.
+        const opt = [leg, this.t("Role_Plan", "Plan"), this.t("Role_PreviousYear", "Prior year"), this.t("Role_Events", "Events")].join(" · ");
+        step(1, axis, big ? this.t("Landing_Drag1", "drag a date here (or a date hierarchy, or categories)") : this.t("Landing_Drag1Short", "drag a date"));
+        step(2, val, big ? this.t("Landing_Drag2", "drag one or more measures; Secondary values go on a right axis") : this.t("Landing_Drag2Short", "drag a measure"));
+        step(3, big ? opt : leg, big ? this.t("Landing_Drag3", "optional: one line per brand, region or team, references and event lines") : this.t("Landing_Drag3Short", "optional"));
         if (big) {
             const cols = mk("div", "lc-l-cols");
             const c1 = mk("div");
@@ -2466,7 +2772,9 @@ export class Visual implements IVisual {
             for (const g of c.groups) {
                 if (g.obj === "y2Axis" && !hasY2) continue;
                 const spec = OBJECTS[g.obj];
-                const slices = spec.props.filter(p => p.name !== g.toggle).map(p => this.slice(g.obj, p));
+                const slices = spec.props.filter(p => p.name !== g.toggle && !(g.obj === "xAxis" && p.name === "sort" && (!this.model || this.model.isTime)))
+                    .map(p => this.slice(g.obj, p));
+                if (g.obj === "targetLine") this.fxTarget(slices);
                 spec.props.forEach(p => revert.push({ objectName: g.obj, propertyName: p.name }));
                 const grp: any = { uid: c.uid + "-" + g.obj + "-group", displayName: g.key ? this.t(g.key, g.label) : undefined, slices };
                 if (g.toggle) {
@@ -2499,6 +2807,20 @@ export class Visual implements IVisual {
      * medida de ese valor; las demás medidas siguen el automático. Límite: no hay color por medida × leyenda, porque los
      * values van sin group (el mapeo validado) y no existe una identidad para esa combinación.
      */
+    /**
+     * fx (F04) en el color del objetivo: regla evaluada por fila (selector comodín). altConstantValueSelector null: el
+     * color FIJO se sigue guardando a nivel general, como antes (si no, llegaría fila a fila y el panel no lo recordaría).
+     */
+    private fxTarget(slices: powerbi.visuals.FormattingSlice[]): void {
+        const sl: any = slices.find((x: any) => x.uid === "targetLine-color");
+        if (!sl) return;
+        const d = sl.control.properties.descriptor;
+        sl.control.properties.descriptor = { ...d, instanceKind: powerbi.VisualEnumerationInstanceKinds.ConstantOrRule,
+            selector: dataViewWildcard.createDataViewWildcardSelector(dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals),
+            altConstantValueSelector: null };
+        sl.control.properties.value = { value: this.targetColor() };
+    }
+
     /** Una entrada por serie configurable: su nombre, el selector donde se guarda y la serie que pinta. */
     private seriesEntries(): { uid: string; name: string; selector: any; ser: Series | undefined }[] {
         const m = this.models[0];
@@ -2523,11 +2845,22 @@ export class Visual implements IVisual {
         return out;
     }
 
+    /**
+     * Color por serie. Sin leyenda, con fx (F04 / FC.CART07): la regla se evalúa por punto y pinta los marcadores; el
+     * color fijo sigue guardándose en la medida (altConstantValueSelector = su selector de siempre). Con leyenda, sin
+     * fx: como los nativos, Power BI no entrega la regla por marca × punto con este mapeo.
+     */
     private colorSlices(): powerbi.visuals.FormattingSlice[] {
         if (this.hc) return [];
-        return this.seriesEntries().map(e => ({ uid: "dataColors-" + e.uid, displayName: e.name, control: { type: "ColorPicker", properties: {
-            descriptor: { objectName: "dataColors", propertyName: "fill", selector: e.selector },
-            value: { value: e.ser?.color ?? "#118DFF" } } } })) as any;
+        const legend = !!this.models[0]?.legendCol;
+        const wild = dataViewWildcard.createDataViewWildcardSelector(dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals);
+        return this.seriesEntries().map(e => {
+            const descriptor: any = legend ? { objectName: "dataColors", propertyName: "fill", selector: e.selector }
+                : { objectName: "dataColors", propertyName: "fill", selector: { ...wild, metadata: e.selector.metadata },
+                    instanceKind: powerbi.VisualEnumerationInstanceKinds.ConstantOrRule, altConstantValueSelector: e.selector };
+            return { uid: "dataColors-" + e.uid, displayName: e.name, control: { type: "ColorPicker", properties: {
+                descriptor, value: { value: e.ser?.color ?? "#118DFF" } } } };
+        }) as any;
     }
 
     /**
@@ -2593,6 +2926,7 @@ export class Visual implements IVisual {
         marcar(".lc-event, .lc-event-labels", "events", 3);
         marcar(".lc-note", "annotations", 1);
         marcar(".lc-source", "sourceNote", 1);
+        marcar(".lc-trend", "trendLine", 3);
     }
 
     private getSubSelectionStyles(subs: powerbi.visuals.CustomVisualSubSelection[]): powerbi.visuals.SubSelectionStyles | undefined {
@@ -2608,6 +2942,7 @@ export class Visual implements IVisual {
             case "legend": return { type: 1, fontSize: ref("legend", "fontSize"), fontColor: ref("legend", "color") } as any;
             case "smallMultiples": return { type: 1, fontSize: ref("smallMultiples", "titleFontSize"), fontColor: ref("smallMultiples", "titleColor") } as any;
             case "targetLine": return { type: 3, stroke: ref("targetLine", "color"), width: ref("targetLine", "width") } as any;
+            case "trendLine": return { type: 3, width: ref("trendLine", "width") } as any;
             case "events": return { type: 3, stroke: ref("events", "color") } as any;
             case "annotations": return { type: 1, fontSize: ref("annotations", "fontSize"), fontColor: ref("annotations", "color") } as any;
             case "sourceNote": return { type: 1, fontSize: ref("sourceNote", "fontSize"), fontColor: ref("sourceNote", "color") } as any;
@@ -2625,13 +2960,14 @@ export class Visual implements IVisual {
         const nav = (o: string, card: string) => ({ type: 1, destinationInfo: { cardUid: "Visual-" + card + "-card" }, label: this.cardLabel(o) });
         const div = { type: 7 };
         switch (name) {
-            case "lines": return [{ type: 3, ...id("lines", "missing"), label: this.propLabel("lines", "missing") }, div, reset("lines"), nav("lines", "lines")] as any;
+            case "lines": return [{ type: 3, ...id("lines", "missing"), label: this.propLabel("lines", "missing") }, toggle("lines", "smooth"), div, reset("lines"), nav("lines", "lines")] as any;
             case "references": return [toggle("references", "show"), toggle("references", "legend"), toggle("references", "gapShading"), div, reset("references"), nav("references", "references")] as any;
             case "smallMultiples": return [toggle("smallMultiples", "titleBold"), toggle("smallMultiples", "border"), toggle("smallMultiples", "sharedY"), div, reset("smallMultiples"), nav("smallMultiples", "smallMultiples")] as any;
             case "endLabels": return [toggle("endLabels", "show"), toggle("endLabels", "seriesColor"), div, reset("endLabels"), nav("endLabels", "endLabels")] as any;
             case "xAxis": case "yAxis": case "y2Axis": return [toggle(name, "show"), toggle(name, "title"), div, reset(name), nav(name, "axes")] as any;
             case "targetLine": return [toggle("targetLine", "show"), toggle("targetLine", "showLabel"), div, reset("targetLine"), nav("targetLine", "targetLine")] as any;
             case "events": return [toggle("events", "show"), toggle("events", "showLabels"), { type: 3, ...id("events", "labelPosition"), label: this.propLabel("events", "labelPosition") }, div, reset("events"), nav("events", "events")] as any;
+            case "trendLine": return [toggle("trendLine", "show"), { type: 3, ...id("trendLine", "type"), label: this.propLabel("trendLine", "type") }, div, reset("trendLine"), nav("trendLine", "trendLine")] as any;
             case "annotations": return [toggle("annotations", "show"), div, reset("annotations"), nav("annotations", "annotations")] as any;
             case "sourceNote": return [toggle("sourceNote", "show"), { type: 3, ...id("sourceNote", "align"), label: this.propLabel("sourceNote", "align") }, div, reset("sourceNote"), nav("sourceNote", "sourceNote")] as any;
             case "legend": return [{ type: 3, ...id("legend", "position"), label: this.propLabel("legend", "position") }, toggle("legend", "show"), div, reset("legend"), nav("legend", "legend")] as any;

@@ -29,6 +29,8 @@ OBJECTS = [
         ("markerSize", "Marker size", "num", 3, {"min": 1, "max": 10}),
         ("missing", "Missing values", "enum", "break",
          {"items": [("break", "Break the line"), ("connect", "Connect the points"), ("zero", "Treat as zero")]}),
+        # Fase OKviz (FT.LINE02): curva monótona, nunca se pasa de los datos.
+        ("smooth", "Smooth lines", "bool", False, {}),
     ]),
     ("endLabels", "End labels", [
         ("show", "Show end labels", "bool", True, {}),
@@ -63,6 +65,15 @@ OBJECTS = [
         ("showLabel", "Show label", "bool", True, {}),
         ("fontSize", "Text size", "num", 10, {"min": 7, "max": 24}),
     ]),
+    # Tendencia (gratis, FC.CART08): lineal (mínimos cuadrados) o media móvil; nunca más allá del último dato.
+    ("trendLine", "Trend line", [
+        ("show", "Show trend line", "bool", False, {}),
+        ("type", "Type", "enum", "linear", {"items": [("linear", "Linear"), ("movingAverage", "Moving average")]}),
+        ("window", "Periods (moving average)", "num", 3, {"min": 2, "max": 24}),
+        ("scope", "Apply to", "enum", "all", {"items": [("all", "All series"), ("first", "First series only")]}),
+        ("width", "Line width", "num", 1.5, {"min": 0.5, "max": 6}),
+        ("opacity", "Opacity (%)", "num", 70, {"min": 20, "max": 100}),
+    ]),
     # Eventos (Pro): rol events, texto; línea vertical + etiqueta con anticolisión.
     ("events", "Events (Pro)", [
         ("show", "Show events", "bool", True, {}),
@@ -85,6 +96,9 @@ OBJECTS = [
         ("fontSize", "Text size", "num", 10, {"min": 7, "max": 24}),
         ("color", "Text color", "fill", "#605E5C", {}),
         ("title", "Title", "bool", False, {}),
+        # FC.CART10: solo con eje categórico (el visual oculta la opción con eje de fecha).
+        ("sort", "Sort categories", "enum", "data", {"items": [("data", "Data order"), ("valueDesc", "By value (descending)"),
+                                                               ("valueAsc", "By value (ascending)"), ("alpha", "Alphabetical")]}),
     ]),
     ("yAxis", "Y axis", [
         ("show", "Show Y axis", "bool", True, {}),
@@ -106,6 +120,7 @@ OBJECTS = [
         ("position", "Position", "enum", "top", {"items": [("top", "Top"), ("bottom", "Bottom")]}),
         ("fontSize", "Text size", "num", 10, {"min": 7, "max": 24}),
         ("color", "Text color", "fill", "#605E5C", {}),
+        ("title", "Show title", "bool", False, {}),
     ]),
     # Las 9 opciones comunes (nombres internos de Histogram/Pareto) y el eje Y compartido.
     ("smallMultiples", "Small multiples (Pro)", [
@@ -137,6 +152,11 @@ OBJECTS = [
         ("color", "Text color", "fill", "", {}),
         ("align", "Alignment", "enum", "left", {"items": [("left", "Left"), ("center", "Center"), ("right", "Right")]}),
     ]),
+    # Zoom del eje X (FC.CART09): solo visual, no filtra ni se guarda.
+    ("interactions", "Interactions", [
+        ("zoom", "Zoom", "bool", True, {}),
+        ("yAutoFit", "Y auto-fit when zoomed", "bool", True, {}),
+    ]),
 ]
 
 # Orden común de la colección: Style template, tarjetas propias, ejes, leyenda, small multiples.
@@ -148,10 +168,12 @@ PANE = [
     ("annotations", "Annotations (Pro)", [("annotations", None, "show")]),
     ("references", "Plan, prior year and forecast", [("references", None, "show")]),
     ("targetLine", "Target line", [("targetLine", None, "show")]),
+    ("trendLine", "Trend line", [("trendLine", None, "show")]),
     ("axes", "Axes", [("xAxis", "X axis", "show"), ("yAxis", "Y axis", "show"), ("y2Axis", "Secondary Y axis", "show")]),
     ("legend", "Legend", [("legend", None, "show")]),
     ("smallMultiples", "Small multiples (Pro)", [("smallMultiples", None, None)]),
     ("sourceNote", "Source note", [("sourceNote", None, "show")]),
+    ("interactions", "Interactions", [("interactions", None, None)]),
 ]
 
 

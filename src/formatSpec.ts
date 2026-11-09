@@ -142,6 +142,13 @@ export const OBJECTS: Record<string, ObjSpec> = {
                         "Treat as zero"
                     ]
                 ]
+            },
+            {
+                "name": "smooth",
+                "type": "bool",
+                "def": false,
+                "key": "Prop_lines_smooth",
+                "label": "Smooth lines"
             }
         ]
     },
@@ -395,6 +402,85 @@ export const OBJECTS: Record<string, ObjSpec> = {
             }
         ]
     },
+    "trendLine": {
+        "name": "trendLine",
+        "key": "Obj_trendLine",
+        "label": "Trend line",
+        "props": [
+            {
+                "name": "show",
+                "type": "bool",
+                "def": false,
+                "key": "Prop_trendLine_show",
+                "label": "Show trend line"
+            },
+            {
+                "name": "type",
+                "type": "enum",
+                "def": "linear",
+                "key": "Prop_trendLine_type",
+                "label": "Type",
+                "items": [
+                    [
+                        "linear",
+                        "Enum_type_linear",
+                        "Linear"
+                    ],
+                    [
+                        "movingAverage",
+                        "Enum_type_movingAverage",
+                        "Moving average"
+                    ]
+                ]
+            },
+            {
+                "name": "window",
+                "type": "num",
+                "def": 3,
+                "key": "Prop_trendLine_window",
+                "label": "Periods (moving average)",
+                "min": 2,
+                "max": 24
+            },
+            {
+                "name": "scope",
+                "type": "enum",
+                "def": "all",
+                "key": "Prop_trendLine_scope",
+                "label": "Apply to",
+                "items": [
+                    [
+                        "all",
+                        "Enum_scope_all",
+                        "All series"
+                    ],
+                    [
+                        "first",
+                        "Enum_scope_first",
+                        "First series only"
+                    ]
+                ]
+            },
+            {
+                "name": "width",
+                "type": "num",
+                "def": 1.5,
+                "key": "Prop_trendLine_width",
+                "label": "Line width",
+                "min": 0.5,
+                "max": 6
+            },
+            {
+                "name": "opacity",
+                "type": "num",
+                "def": 70,
+                "key": "Prop_trendLine_opacity",
+                "label": "Opacity (%)",
+                "min": 20,
+                "max": 100
+            }
+        ]
+    },
     "events": {
         "name": "events",
         "key": "Obj_events",
@@ -555,6 +641,35 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "def": false,
                 "key": "Prop_xAxis_title",
                 "label": "Title"
+            },
+            {
+                "name": "sort",
+                "type": "enum",
+                "def": "data",
+                "key": "Prop_xAxis_sort",
+                "label": "Sort categories",
+                "items": [
+                    [
+                        "data",
+                        "Enum_sort_data",
+                        "Data order"
+                    ],
+                    [
+                        "valueDesc",
+                        "Enum_sort_valueDesc",
+                        "By value (descending)"
+                    ],
+                    [
+                        "valueAsc",
+                        "Enum_sort_valueAsc",
+                        "By value (ascending)"
+                    ],
+                    [
+                        "alpha",
+                        "Enum_sort_alpha",
+                        "Alphabetical"
+                    ]
+                ]
             }
         ]
     },
@@ -699,6 +814,13 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "def": "#605E5C",
                 "key": "Prop_legend_color",
                 "label": "Text color"
+            },
+            {
+                "name": "title",
+                "type": "bool",
+                "def": false,
+                "key": "Prop_legend_title",
+                "label": "Show title"
             }
         ]
     },
@@ -928,6 +1050,27 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 ]
             }
         ]
+    },
+    "interactions": {
+        "name": "interactions",
+        "key": "Obj_interactions",
+        "label": "Interactions",
+        "props": [
+            {
+                "name": "zoom",
+                "type": "bool",
+                "def": true,
+                "key": "Prop_interactions_zoom",
+                "label": "Zoom"
+            },
+            {
+                "name": "yAutoFit",
+                "type": "bool",
+                "def": true,
+                "key": "Prop_interactions_yAutoFit",
+                "label": "Y auto-fit when zoomed"
+            }
+        ]
     }
 };
 export const PANE: CardSpec[] = [
@@ -1009,6 +1152,17 @@ export const PANE: CardSpec[] = [
         ]
     },
     {
+        "uid": "trendLine",
+        "key": "Obj_trendLine",
+        "label": "Trend line",
+        "groups": [
+            {
+                "obj": "trendLine",
+                "toggle": "show"
+            }
+        ]
+    },
+    {
         "uid": "axes",
         "key": "Obj_axes",
         "label": "Axes",
@@ -1063,6 +1217,17 @@ export const PANE: CardSpec[] = [
             {
                 "obj": "sourceNote",
                 "toggle": "show"
+            }
+        ]
+    },
+    {
+        "uid": "interactions",
+        "key": "Obj_interactions",
+        "label": "Interactions",
+        "groups": [
+            {
+                "obj": "interactions",
+                "toggle": null
             }
         ]
     }

@@ -61,6 +61,8 @@ export interface Series {
     customStroke: SeriesStroke;
     /** Anotaciones (texto por clave del eje), solo en las series de la primera medida; null en las demás. */
     notes: (string | null)[] | null;
+    /** Formato condicional (fx) del color, punto a punto: pinta los marcadores. Solo sin leyenda; null sin regla. */
+    ruleColors: (string | null)[] | null;
 }
 
 export interface SeriesStroke { style: string | null; width: number | null; markers: string | null; }
@@ -73,7 +75,12 @@ export interface TargetLine {
     formats: (string | undefined)[];
     /** Todos los valores no vacíos son iguales: línea horizontal en todo el ancho. */
     constant: boolean;
+    /** Formato condicional (fx) del color del objetivo, por periodo; null sin regla. */
+    ruleColors: (string | null)[] | null;
 }
+
+/** Orden de un eje categórico (X axis → Sort categories). Con eje de fecha no se aplica. */
+export type SortMode = "data" | "valueDesc" | "valueAsc" | "alpha";
 
 /** Un campo de texto (eventos o anotaciones): nombre y cuántos valores llegaron sin ser texto (Count, Sum...). */
 export interface TextField { name: string; nonText: number; }
@@ -193,7 +200,7 @@ export function panelValues(dv: DataView): string[] {
  * compartan el eje X y cada marca tenga el mismo color en todos; las series solo toman las filas de su panel.
  * panel = undefined: el primero (sin licencia, o con el campo pero sin paneles).
  */
-export function buildModel(dv: DataView, blankLabel: string, panel?: string): Model | null {
+export function buildModel(dv: DataView, blankLabel: string, panel?: string, sortMode: SortMode = "data"): Model | null {
     const cat = dv && dv.categorical;
     if (!cat || !cat.categories || !cat.categories.length) return null;
     const cats = cat.categories;
@@ -252,7 +259,24 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string): Mo
     // Orden del eje: por fecha; numérico si todo el eje es un único número (no jerarquía); si no, el de Power BI.
     let order = keys.map((_k, i) => i);
     if (isTime) order.sort((x, y) => keys[x].pos - keys[y].pos);
-    else if (axisCols.length === 1 && !levelCols[0] && keys.every(k => typeof k.raw[0] === "number")) {
+    else if (sortMode === "valueDesc" || sortMode === "valueAsc") {
+        // Por valor: la suma de la PRIMERA medida en todas las filas de la clave (todos los paneles y marcas), para
+        // que los paneles compartan el orden. Empates y vacíos: el orden de Power BI.
+        const fc = measureCols.find(c => hasRole(c.source, "values")) ?? measureCols[0];
+        const score = new Array(keys.length).fill(0);
+        const has = new Array(keys.length).fill(false);
+        for (let r = 0; r < N; r++) {
+            const k = rowKey[r];
+            if (k < 0) continue;
+            const v = toNum(fc.values[r]);
+            if (v !== null) { score[k] += v; has[k] = true; }
+        }
+        const dir = sortMode === "valueDesc" ? -1 : 1;
+        order.sort((x, y) => (has[x] !== has[y] ? (has[x] ? -1 : 1) : (score[x] - score[y]) * dir) || x - y);
+    } else if (sortMode === "alpha") {
+        const lbl = (i: number) => keys[i].raw.map(v => (v instanceof Date ? v.toISOString() : String(v))).join(" ");
+        order.sort((x, y) => lbl(x).localeCompare(lbl(y), undefined, { numeric: true, sensitivity: "base" }) || x - y);
+    } else if (axisCols.length === 1 && !levelCols[0] && keys.every(k => typeof k.raw[0] === "number")) {
         order.sort((x, y) => (keys[x].raw[0] as number) - (keys[y].raw[0] as number));
     }
     const remap = new Array(keys.length);
@@ -306,6 +330,9 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string): Mo
             const formats: (string | undefined)[] = new Array(K).fill(undefined);
             const rows: number[] = new Array(K).fill(-1);
             const hl: (number | null)[] | null = col.highlights ? new Array(K).fill(null) : null;
+            // fx del color (sin leyenda): Power BI evalúa la regla por fila y la deja en objects[fila] de la columna.
+            const rc: (string | null)[] | null = !legendCol && col.objects ? new Array(K).fill(null) : null;
+            let anyRule = false;
             let any = false;
             for (let r = 0; r < N; r++) {
                 if (rowLeg[r] !== li || rowKey[r] < 0 || !inPanel(r)) continue;
@@ -315,6 +342,7 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string): Mo
                 values[k] = v;
                 if (v !== null) any = true;
                 formats[k] = fmtOfPoint(col, r);
+                if (rc) { const c = colorOf(col.objects[r]); if (c) { rc[k] = c; anyRule = true; } }
                 if (hl) { const h = toNum(col.highlights[r]); hl[k] = h; if (h !== null) hasHighlights = true; }
             }
             if (!any) continue;
@@ -332,6 +360,7 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string): Mo
                 cadence: cadenceOf(own) || cadence,
                 customStroke: legendCol ? (col === ordered[0] ? legendStroke(li) : NO_STROKE) : measureStroke,
                 notes: null,
+                ruleColors: anyRule ? rc : null,
             });
         }
     }
@@ -376,8 +405,20 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string): Mo
             if (v === null) continue;
             values[k] = v; formats[k] = fmtOfPoint(tcol, r);
         }
+        // fx del color del objetivo (selector comodín): el resultado de la regla llega por fila en las categorías.
+        const rc: (string | null)[] = new Array(K).fill(null);
+        let anyRule = false;
+        for (let r = 0; r < N; r++) {
+            const k = rowKey[r];
+            if (k < 0 || !inPanel(r) || rc[k] !== null) continue;
+            for (const c of cats) {
+                const col = (c.objects?.[r] as any)?.targetLine?.color?.solid?.color;
+                if (typeof col === "string" && col) { rc[k] = col; anyRule = true; break; }
+            }
+        }
         const nn = values.filter((v): v is number => v !== null);
-        if (nn.length) target = { name: tcol.source.displayName, format: tcol.source.format, values, formats, constant: nn.every(v => v === nn[0]) };
+        if (nn.length) target = { name: tcol.source.displayName, format: tcol.source.format, values, formats, constant: nn.every(v => v === nn[0]),
+            ruleColors: anyRule ? rc : null };
     }
 
     // Eventos: texto por clave del eje (el primero no vacío de la clave en este panel).

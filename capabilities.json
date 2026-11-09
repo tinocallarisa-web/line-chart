@@ -231,6 +231,13 @@
               }
             ]
           }
+        },
+        "smooth": {
+          "displayName": "Smooth lines",
+          "displayNameKey": "Prop_lines_smooth",
+          "type": {
+            "bool": true
+          }
         }
       }
     },
@@ -485,6 +492,76 @@
         }
       }
     },
+    "trendLine": {
+      "displayName": "Trend line",
+      "displayNameKey": "Obj_trendLine",
+      "properties": {
+        "show": {
+          "displayName": "Show trend line",
+          "displayNameKey": "Prop_trendLine_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "type": {
+          "displayName": "Type",
+          "displayNameKey": "Prop_trendLine_type",
+          "type": {
+            "enumeration": [
+              {
+                "value": "linear",
+                "displayName": "Linear",
+                "displayNameKey": "Enum_type_linear"
+              },
+              {
+                "value": "movingAverage",
+                "displayName": "Moving average",
+                "displayNameKey": "Enum_type_movingAverage"
+              }
+            ]
+          }
+        },
+        "window": {
+          "displayName": "Periods (moving average)",
+          "displayNameKey": "Prop_trendLine_window",
+          "type": {
+            "numeric": true
+          }
+        },
+        "scope": {
+          "displayName": "Apply to",
+          "displayNameKey": "Prop_trendLine_scope",
+          "type": {
+            "enumeration": [
+              {
+                "value": "all",
+                "displayName": "All series",
+                "displayNameKey": "Enum_scope_all"
+              },
+              {
+                "value": "first",
+                "displayName": "First series only",
+                "displayNameKey": "Enum_scope_first"
+              }
+            ]
+          }
+        },
+        "width": {
+          "displayName": "Line width",
+          "displayNameKey": "Prop_trendLine_width",
+          "type": {
+            "numeric": true
+          }
+        },
+        "opacity": {
+          "displayName": "Opacity (%)",
+          "displayNameKey": "Prop_trendLine_opacity",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
+    },
     "events": {
       "displayName": "Events (Pro)",
       "displayNameKey": "Obj_events",
@@ -648,6 +725,34 @@
           "type": {
             "bool": true
           }
+        },
+        "sort": {
+          "displayName": "Sort categories",
+          "displayNameKey": "Prop_xAxis_sort",
+          "type": {
+            "enumeration": [
+              {
+                "value": "data",
+                "displayName": "Data order",
+                "displayNameKey": "Enum_sort_data"
+              },
+              {
+                "value": "valueDesc",
+                "displayName": "By value (descending)",
+                "displayNameKey": "Enum_sort_valueDesc"
+              },
+              {
+                "value": "valueAsc",
+                "displayName": "By value (ascending)",
+                "displayNameKey": "Enum_sort_valueAsc"
+              },
+              {
+                "value": "alpha",
+                "displayName": "Alphabetical",
+                "displayNameKey": "Enum_sort_alpha"
+              }
+            ]
+          }
         }
       }
     },
@@ -793,6 +898,13 @@
                 "color": true
               }
             }
+          }
+        },
+        "title": {
+          "displayName": "Show title",
+          "displayNameKey": "Prop_legend_title",
+          "type": {
+            "bool": true
           }
         }
       }
@@ -1023,6 +1135,26 @@
                 "displayNameKey": "Enum_align_right"
               }
             ]
+          }
+        }
+      }
+    },
+    "interactions": {
+      "displayName": "Interactions",
+      "displayNameKey": "Obj_interactions",
+      "properties": {
+        "zoom": {
+          "displayName": "Zoom",
+          "displayNameKey": "Prop_interactions_zoom",
+          "type": {
+            "bool": true
+          }
+        },
+        "yAutoFit": {
+          "displayName": "Y auto-fit when zoomed",
+          "displayNameKey": "Prop_interactions_yAutoFit",
+          "type": {
+            "bool": true
           }
         }
       }
