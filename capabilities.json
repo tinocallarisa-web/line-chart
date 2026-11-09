@@ -1,0 +1,192 @@
+{
+  "dataRoles": [
+    {
+      "displayName": "Axis",
+      "displayNameKey": "Role_Axis",
+      "name": "axis",
+      "kind": "Grouping",
+      "description": "Dates or categories for the horizontal axis.",
+      "descriptionKey": "Role_Axis_Desc"
+    },
+    {
+      "displayName": "Small multiples (Pro)",
+      "displayNameKey": "Role_SmallMultiple",
+      "name": "smallMultiple",
+      "kind": "Grouping",
+      "description": "One panel per value of this field.",
+      "descriptionKey": "Role_SmallMultiple_Desc"
+    },
+    {
+      "displayName": "Legend",
+      "displayNameKey": "Role_Legend",
+      "name": "legend",
+      "kind": "Grouping",
+      "description": "One line per value of this field.",
+      "descriptionKey": "Role_Legend_Desc"
+    },
+    {
+      "displayName": "Values",
+      "displayNameKey": "Role_Values",
+      "name": "values",
+      "kind": "Measure",
+      "description": "Measures drawn as lines on the main axis.",
+      "descriptionKey": "Role_Values_Desc"
+    },
+    {
+      "displayName": "Secondary values",
+      "displayNameKey": "Role_SecondaryValues",
+      "name": "secondaryValues",
+      "kind": "Measure",
+      "description": "Measures drawn on the secondary axis.",
+      "descriptionKey": "Role_SecondaryValues_Desc"
+    },
+    {
+      "displayName": "Plan",
+      "displayNameKey": "Role_Plan",
+      "name": "plan",
+      "kind": "Measure",
+      "description": "Reference measure: planned or budgeted figure.",
+      "descriptionKey": "Role_Plan_Desc"
+    },
+    {
+      "displayName": "Prior year",
+      "displayNameKey": "Role_PreviousYear",
+      "name": "previousYear",
+      "kind": "Measure",
+      "description": "Reference measure: the same figure for the prior year.",
+      "descriptionKey": "Role_PreviousYear_Desc"
+    },
+    {
+      "displayName": "Forecast",
+      "displayNameKey": "Role_Forecast",
+      "name": "forecast",
+      "kind": "Measure",
+      "description": "Reference measure: your own forecast measure.",
+      "descriptionKey": "Role_Forecast_Desc"
+    },
+    {
+      "displayName": "Tooltips",
+      "displayNameKey": "Role_Tooltips",
+      "name": "tooltips",
+      "kind": "Measure"
+    }
+  ],
+  "objects": {},
+  "dataViewMappings": [
+    {
+      "conditions": [
+        {
+          "axis": {
+            "max": 1
+          },
+          "smallMultiple": {
+            "max": 1
+          },
+          "legend": {
+            "max": 1
+          },
+          "values": {
+            "max": 6
+          },
+          "secondaryValues": {
+            "max": 3
+          },
+          "plan": {
+            "max": 1
+          },
+          "previousYear": {
+            "max": 1
+          },
+          "forecast": {
+            "max": 1
+          }
+        }
+      ],
+      "categorical": {
+        "categories": {
+          "select": [
+            {
+              "for": {
+                "in": "axis"
+              }
+            },
+            {
+              "for": {
+                "in": "smallMultiple"
+              }
+            }
+          ],
+          "dataReductionAlgorithm": {
+            "window": {
+              "count": 30000
+            }
+          }
+        },
+        "values": {
+          "group": {
+            "by": "legend",
+            "select": [
+              {
+                "for": {
+                  "in": "values"
+                }
+              },
+              {
+                "for": {
+                  "in": "secondaryValues"
+                }
+              },
+              {
+                "for": {
+                  "in": "plan"
+                }
+              },
+              {
+                "for": {
+                  "in": "previousYear"
+                }
+              },
+              {
+                "for": {
+                  "in": "forecast"
+                }
+              },
+              {
+                "for": {
+                  "in": "tooltips"
+                }
+              }
+            ],
+            "dataReductionAlgorithm": {
+              "top": {
+                "count": 100
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "privileges": [],
+  "tooltips": {
+    "supportedTypes": {
+      "default": true,
+      "canvas": true
+    },
+    "roles": [
+      "tooltips"
+    ]
+  },
+  "supportsHighlight": true,
+  "supportsLandingPage": true,
+  "supportsKeyboardFocus": true,
+  "supportsMultiVisualSelection": true,
+  "drilldown": {
+    "roles": [
+      "axis"
+    ]
+  },
+  "sorting": {
+    "default": {}
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "visual": {
+    "name": "lineChartTCViz",
+    "displayName": "Line Chart by TCViz",
+    "guid": "lineChartTCVizD8CCBAB58761478B9C59A5FA700EC503",
+    "visualClassName": "Visual",
+    "version": "1.0.0.0",
+    "description": "A line chart for business time series: real date axis with honest gaps, several series and a secondary axis, end labels with the last value, and plan and prior year as reference lines.",
+    "supportUrl": "https://tinocallarisa-web.github.io/LineChart/support.html",
+    "privacyTermsLink": "https://tinocallarisa-web.github.io/LineChart/privacy.html",
+    "gitHubUrl": "https://github.com/tinocallarisa-web/LineChart"
+  },
+  "author": {
+    "name": "TCViz",
+    "email": "support@tcviz.com"
+  },
+  "apiVersion": "5.11.1",
+  "assets": {
+    "icon": "assets/icon.png"
+  },
+  "externalJS": [],
+  "stringResources": [
+    "stringResources/en-US/resources.resjson"
+  ],
+  "style": "style/visual.less",
+  "capabilities": "capabilities.json",
+  "privacyTerms": {
+    "link": "https://tinocallarisa-web.github.io/LineChart/privacy.html"
+  }
+}

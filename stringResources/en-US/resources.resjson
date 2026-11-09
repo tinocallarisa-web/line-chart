@@ -1,0 +1,19 @@
+{
+  "Role_Axis": "Axis",
+  "Role_Axis_Desc": "Dates or categories for the horizontal axis.",
+  "Role_SmallMultiple": "Small multiples (Pro)",
+  "Role_SmallMultiple_Desc": "One panel per value of this field.",
+  "Role_Legend": "Legend",
+  "Role_Legend_Desc": "One line per value of this field.",
+  "Role_Values": "Values",
+  "Role_Values_Desc": "Measures drawn as lines on the main axis.",
+  "Role_SecondaryValues": "Secondary values",
+  "Role_SecondaryValues_Desc": "Measures drawn on the secondary axis.",
+  "Role_Plan": "Plan",
+  "Role_Plan_Desc": "Reference measure: planned or budgeted figure.",
+  "Role_PreviousYear": "Prior year",
+  "Role_PreviousYear_Desc": "Reference measure: the same figure for the prior year.",
+  "Role_Forecast": "Forecast",
+  "Role_Forecast_Desc": "Reference measure: your own forecast measure.",
+  "Role_Tooltips": "Tooltips"
+}
