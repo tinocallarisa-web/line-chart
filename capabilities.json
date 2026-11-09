@@ -114,6 +114,11 @@
               "for": {
                 "in": "smallMultiple"
               }
+            },
+            {
+              "for": {
+                "in": "legend"
+              }
             }
           ],
           "dataReductionAlgorithm": {
@@ -123,46 +128,38 @@
           }
         },
         "values": {
-          "group": {
-            "by": "legend",
-            "select": [
-              {
-                "for": {
-                  "in": "values"
-                }
-              },
-              {
-                "for": {
-                  "in": "secondaryValues"
-                }
-              },
-              {
-                "for": {
-                  "in": "plan"
-                }
-              },
-              {
-                "for": {
-                  "in": "previousYear"
-                }
-              },
-              {
-                "for": {
-                  "in": "forecast"
-                }
-              },
-              {
-                "for": {
-                  "in": "tooltips"
-                }
+          "select": [
+            {
+              "for": {
+                "in": "values"
               }
-            ],
-            "dataReductionAlgorithm": {
-              "top": {
-                "count": 100
+            },
+            {
+              "for": {
+                "in": "secondaryValues"
+              }
+            },
+            {
+              "for": {
+                "in": "plan"
+              }
+            },
+            {
+              "for": {
+                "in": "previousYear"
+              }
+            },
+            {
+              "for": {
+                "in": "forecast"
+              }
+            },
+            {
+              "for": {
+                "in": "tooltips"
               }
             }
-          }
+          ]
         }
       }
     }

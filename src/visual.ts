@@ -102,6 +102,11 @@ export class Visual implements IVisual {
             if (c.values && c.values.length) {
                 L.push("      primero=" + this.fmt(c.values[0]) + "  último=" + this.fmt(c.values[c.values.length - 1]) +
                     "  distintos=" + new Set(c.values.map(v => this.key(v))).size);
+                const fechas = c.values.filter(v => v instanceof Date) as Date[];
+                if (fechas.length) {
+                    const t = fechas.map(d => d.getTime());
+                    L.push("      mín=" + this.fmt(new Date(Math.min(...t))) + "  máx=" + this.fmt(new Date(Math.max(...t))));
+                }
             }
         });
         const axisCat = cats.find(c => this.hasRole(c.source, "axis"));
