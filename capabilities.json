@@ -275,6 +275,29 @@
               }
             }
           }
+        },
+        "variance": {
+          "displayName": "Variance vs plan or PY (Pro)",
+          "displayNameKey": "Prop_endLabels_variance",
+          "type": {
+            "enumeration": [
+              {
+                "value": "off",
+                "displayName": "Off",
+                "displayNameKey": "Enum_variance_off"
+              },
+              {
+                "value": "pct",
+                "displayName": "Percentage",
+                "displayNameKey": "Enum_variance_pct"
+              },
+              {
+                "value": "abs",
+                "displayName": "Absolute",
+                "displayNameKey": "Enum_variance_abs"
+              }
+            ]
+          }
         }
       }
     },
@@ -330,6 +353,42 @@
           "displayNameKey": "Prop_references_legend",
           "type": {
             "bool": true
+          }
+        },
+        "gapShading": {
+          "displayName": "Gap shading (Pro)",
+          "displayNameKey": "Prop_references_gapShading",
+          "type": {
+            "bool": true
+          }
+        },
+        "aboveColor": {
+          "displayName": "Above the reference",
+          "displayNameKey": "Prop_references_aboveColor",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "belowColor": {
+          "displayName": "Below the reference",
+          "displayNameKey": "Prop_references_belowColor",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "gapOpacity": {
+          "displayName": "Shading opacity (%)",
+          "displayNameKey": "Prop_references_gapOpacity",
+          "type": {
+            "numeric": true
           }
         }
       }
@@ -600,6 +659,30 @@
         "borderColor": {
           "displayName": "Panel border color",
           "displayNameKey": "Prop_smallMultiples_borderColor",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "sharedY": {
+          "displayName": "Shared Y axis",
+          "displayNameKey": "Prop_smallMultiples_sharedY",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    },
+    "dataColors": {
+      "displayName": "Series colors",
+      "displayNameKey": "Obj_dataColors",
+      "properties": {
+        "fill": {
+          "displayName": "Color",
+          "displayNameKey": "Prop_dataColors_fill",
           "type": {
             "fill": {
               "solid": {

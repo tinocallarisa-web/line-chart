@@ -38,6 +38,9 @@ OBJECTS = [
         ("fontSize", "Text size", "num", 10, {"min": 7, "max": 24}),
         ("seriesColor", "Use the series color", "bool", True, {}),
         ("color", "Text color", "fill", "#252423", {}),
+        # Bloque 2 (Pro): desvío contra el plan, o contra el año anterior si no hay plan.
+        ("variance", "Variance vs plan or PY (Pro)", "enum", "off",
+         {"items": [("off", "Off"), ("pct", "Percentage"), ("abs", "Absolute")]}),
     ]),
     ("references", "Plan, prior year and forecast", [
         ("show", "Show reference lines", "bool", True, {}),
@@ -45,6 +48,11 @@ OBJECTS = [
         ("color", "Gray", "fill", "#8A8886", {}),
         ("width", "Line width", "num", 1.5, {"min": 0.5, "max": 6}),
         ("legend", "Show in legend", "bool", True, {}),
+        # Bloque 2 (Pro): banda entre la serie real y su referencia (plan, o año anterior), partida en el cruce.
+        ("gapShading", "Gap shading (Pro)", "bool", False, {}),
+        ("aboveColor", "Above the reference", "fill", "#2E7D32", {}),
+        ("belowColor", "Below the reference", "fill", "#C62828", {}),
+        ("gapOpacity", "Shading opacity (%)", "num", 18, {"min": 5, "max": 30}),
     ]),
     ("xAxis", "X axis", [
         ("show", "Show X axis", "bool", True, {}),
@@ -73,7 +81,7 @@ OBJECTS = [
         ("fontSize", "Text size", "num", 10, {"min": 7, "max": 24}),
         ("color", "Text color", "fill", "#605E5C", {}),
     ]),
-    # Declarada ya con las 9 opciones comunes (nombres internos de Histogram/Pareto); el dibujo llega en el bloque 2.
+    # Las 9 opciones comunes (nombres internos de Histogram/Pareto) y el eje Y compartido.
     ("smallMultiples", "Small multiples (Pro)", [
         ("columns", "Columns (0 = automatic)", "num", 0, {"min": 0, "max": 12}),
         ("gap", "Space between panels", "num", 8, {"min": 0, "max": 40}),
@@ -84,11 +92,16 @@ OBJECTS = [
         ("background", "Panel background", "fill", "", {}),
         ("border", "Panel border", "bool", False, {}),
         ("borderColor", "Panel border color", "fill", "#E1DFDD", {}),
+        ("sharedY", "Shared Y axis", "bool", True, {}),
+    ]),
+    # Color por serie (gratis, como el nativo): se guarda con selector (medida o valor de leyenda); el panel lo construye
+    # el visual en la tarjeta Lines. Sin tarjeta propia en PANE.
+    ("dataColors", "Series colors", [
+        ("fill", "Color", "fill", "", {}),
     ]),
 ]
 
 # Orden común de la colección: Style template, tarjetas propias, ejes, leyenda, small multiples.
-# smallMultiples queda fuera del panel hasta que se dibuje (bloque 2).
 PANE = [
     ("style", "Style template", [("style", None, None)]),
     ("lines", "Lines", [("lines", None, None)]),
@@ -96,6 +109,7 @@ PANE = [
     ("references", "Plan, prior year and forecast", [("references", None, "show")]),
     ("axes", "Axes", [("xAxis", "X axis", "show"), ("yAxis", "Y axis", "show"), ("y2Axis", "Secondary Y axis", "show")]),
     ("legend", "Legend", [("legend", None, "show")]),
+    ("smallMultiples", "Small multiples (Pro)", [("smallMultiples", None, None)]),
 ]
 
 

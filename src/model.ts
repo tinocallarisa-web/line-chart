@@ -53,6 +53,8 @@ export interface Series {
     /** Último valor NO vacío. */
     lastIndex: number;
     color: string;
+    /** Color elegido en el panel (dataColors): por valor de leyenda, o por medida sin leyenda. */
+    customColor: string | null;
     /** Cadencia propia (mediana de distancias entre sus puntos con valor), en unidades de pos. */
     cadence: number;
 }
@@ -77,9 +79,11 @@ export interface Model {
     missingAxis: number;
     /** Power BI recortó: llegaron menos filas de las que hay (más de 30.000 combinaciones). */
     segment: boolean;
-    /** Small multiples aún no se dibujan (bloque 2): se muestra el primer panel y se dice. */
+    /** Small multiples: cuántos valores hay y cuál dibuja este modelo (null sin campo). */
     smPanels: number;
     smShown: string | null;
+    /** Valores de leyenda (todos los paneles) con su primera fila: el selector de su color. */
+    legendValues: { name: string; row: number }[];
     hasHighlights: boolean;
     rowCount: number;
 }
@@ -121,7 +125,28 @@ export function cadenceOf(pos: number[]): number {
     return median(d);
 }
 
-export function buildModel(dv: DataView, blankLabel: string): Model | null {
+const colorOf = (o: unknown): string | null => {
+    const c = (o as any)?.dataColors?.fill?.solid?.color;
+    return typeof c === "string" && c ? c : null;
+};
+
+/** Valores del campo Small multiples, en el orden en que llegan. Vacío si no hay campo. */
+export function panelValues(dv: DataView): string[] {
+    const cats = dv?.categorical?.categories ?? [];
+    const smCol = cats.find(c => hasRole(c.source, "smallMultiple"));
+    if (!smCol) return [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const v of smCol.values) { const k = String(v ?? ""); if (!seen.has(k)) { seen.add(k); out.push(k); } }
+    return out;
+}
+
+/**
+ * El modelo de UN panel. Las claves del eje y los valores de leyenda salen de TODAS las filas, para que los paneles
+ * compartan el eje X y cada marca tenga el mismo color en todos; las series solo toman las filas de su panel.
+ * panel = undefined: el primero (sin licencia, o con el campo pero sin paneles).
+ */
+export function buildModel(dv: DataView, blankLabel: string, panel?: string): Model | null {
     const cat = dv && dv.categorical;
     if (!cat || !cat.categories || !cat.categories.length) return null;
     const cats = cat.categories;
@@ -139,10 +164,9 @@ export function buildModel(dv: DataView, blankLabel: string): Model | null {
         a0.values.some(v => toDate(v) !== null);
     const levelCols = axisCols.map(c => isHierarchyLevel(c.source));
 
-    // Small multiples (bloque 2): por ahora solo el primer panel, y se avisa.
-    const smVals: string[] = [];
-    if (smCol) for (let r = 0; r < N; r++) { const k = String(smCol.values[r] ?? ""); if (smVals.indexOf(k) < 0) smVals.push(k); }
-    const smFirst = smVals.length ? smVals[0] : null;
+    const smVals = panelValues(dv);
+    const smFirst = smVals.length ? (panel !== undefined && smVals.indexOf(panel) >= 0 ? panel : smVals[0]) : null;
+    const inPanel = (r: number) => !smCol || String(smCol.values[r] ?? "") === smFirst;
 
     const keyIndex = new Map<string, number>();
     const keys: AxisKey[] = [];
@@ -153,8 +177,8 @@ export function buildModel(dv: DataView, blankLabel: string): Model | null {
     let missingAxis = 0;
     const anyValue = (r: number) => cols.some(c => !hasRole(c.source, "tooltips") && toNum(c.values[r]) !== null);
 
+    const legendFirstRow: number[] = [];
     for (let r = 0; r < N; r++) {
-        if (smCol && String(smCol.values[r] ?? "") !== smFirst) continue;
         const raws = axisCols.map(c => c.values[r]);
         let empty = false;
         let key: string;
@@ -167,13 +191,13 @@ export function buildModel(dv: DataView, blankLabel: string): Model | null {
             empty = raws.some((v, i) => v === null || v === undefined || v === "" || (levelCols[i] && v === 0));
             if (!empty) key = raws.map(v => (v instanceof Date ? String(v.getTime()) : String(v))).join("␟");
         }
-        if (empty) { if (anyValue(r)) missingAxis++; continue; }
+        if (empty) { if (anyValue(r) && inPanel(r)) missingAxis++; continue; }
         let ki = keyIndex.get(key);
         if (ki === undefined) { ki = keys.length; keyIndex.set(key, ki); keys.push({ key, raw: raws, pos }); }
         rowKey[r] = ki;
         const lg = legendCol ? String(legendCol.values[r] ?? "\u0000") : "";
         let li = legIndex.get(lg);
-        if (li === undefined) { li = legends.length; legIndex.set(lg, li); legends.push(lg); }
+        if (li === undefined) { li = legends.length; legIndex.set(lg, li); legends.push(lg); legendFirstRow.push(r); }
         rowLeg[r] = li;
     }
 
@@ -206,8 +230,18 @@ export function buildModel(dv: DataView, blankLabel: string): Model | null {
     const roleCols = (role: string) => measureCols.filter(c => hasRole(c.source, role));
     const ordered = roleCols("values").concat(roleCols("secondaryValues"));
     let hasHighlights = false;
+    const metaCols = dv.metadata?.columns ?? [];
+    const legendColor = (li: number): string | null => {
+        if (!legendCol || !legendCol.objects) return null;
+        for (let r = 0; r < N; r++) if (rowLeg[r] === li) { const c = colorOf(legendCol.objects[r]); if (c) return c; }
+        return null;
+    };
     for (const col of ordered) {
         const role = hasRole(col.source, "values") ? "values" : "secondaryValues";
+        // Sin leyenda, el color se guarda por medida (selector metadata); con leyenda, por valor de leyenda y solo para
+        // la primera medida (las demás siguen el automático: dos medidas de la misma marca no deben confundirse).
+        const meta = metaCols.find(c => c.queryName === col.source.queryName) ?? col.source;
+        const measureColor = legendCol ? null : (colorOf(col.source.objects) ?? colorOf(meta.objects));
         for (let li = 0; li < legends.length; li++) {
             const values: (number | null)[] = new Array(K).fill(null);
             const formats: (string | undefined)[] = new Array(K).fill(undefined);
@@ -215,7 +249,7 @@ export function buildModel(dv: DataView, blankLabel: string): Model | null {
             const hl: (number | null)[] | null = col.highlights ? new Array(K).fill(null) : null;
             let any = false;
             for (let r = 0; r < N; r++) {
-                if (rowLeg[r] !== li || rowKey[r] < 0) continue;
+                if (rowLeg[r] !== li || rowKey[r] < 0 || !inPanel(r)) continue;
                 const k = rowKey[r];
                 rows[k] = r;
                 const v = toNum(col.values[r]);
@@ -235,6 +269,7 @@ export function buildModel(dv: DataView, blankLabel: string): Model | null {
             series.push({
                 id: (col.source.queryName || measure) + "␟" + (lg ?? ""), name, measure, legend: lg, legendIndex: li, role,
                 format: col.source.format, values, formats, highlights: hl, rows, refs: [], lastIndex: last, color: "",
+                customColor: legendCol ? (col === ordered[0] ? legendColor(li) : null) : measureColor,
                 cadence: cadenceOf(own) || cadence,
             });
         }
@@ -253,7 +288,7 @@ export function buildModel(dv: DataView, blankLabel: string): Model | null {
             const formats: (string | undefined)[] = new Array(K).fill(undefined);
             let any = false;
             for (let r = 0; r < N; r++) {
-                if (rowLeg[r] !== s.legendIndex || rowKey[r] < 0) continue;
+                if (rowLeg[r] !== s.legendIndex || rowKey[r] < 0 || !inPanel(r)) continue;
                 const v = toNum(col.values[r]);
                 values[rowKey[r]] = v;
                 formats[rowKey[r]] = fmtOfPoint(col, r);
@@ -278,6 +313,7 @@ export function buildModel(dv: DataView, blankLabel: string): Model | null {
         series, refKinds, tooltipCols, missingAxis,
         segment: !!(md && md.segment),
         smPanels: smVals.length, smShown: smFirst,
+        legendValues: legendCol ? legends.map((l, i) => ({ name: legendName(i) ?? l, row: legendFirstRow[i] })) : [],
         hasHighlights, rowCount: N,
     };
 }
@@ -323,5 +359,88 @@ export function segmentsOf(values: (number | null)[], keys: AxisKey[], mode: str
         } else cur.push(b);
     }
     out.push(cur);
+    return out;
+}
+
+/** Valor de una línea dibujada en una posición: interpolado dentro de su tramo; null fuera de todo tramo (hueco). */
+export function valueAt(segs: Pt[][], pos: number): number | null {
+    const i = segIndex(segs, pos);
+    if (i < 0) return null;
+    const s = segs[i];
+    if (s.length === 1) return s[0].v;
+    let lo = 0, hi = s.length - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (s[mid].pos <= pos) lo = mid; else hi = mid; }
+    const p = s[lo], q = s[hi];
+    if (q.pos === p.pos) return q.v;
+    const t = Math.max(0, Math.min(1, (pos - p.pos) / (q.pos - p.pos)));
+    return p.v + (q.v - p.v) * t;
+}
+
+/** Índice del tramo que contiene la posición, o -1. */
+export function segIndex(segs: Pt[][], pos: number): number {
+    for (let i = 0; i < segs.length; i++) {
+        const s = segs[i];
+        if (!s.length) continue;
+        if (pos >= s[0].pos - 1e-6 && pos <= s[s.length - 1].pos + 1e-6) return i;
+    }
+    return -1;
+}
+
+export interface BandPt { pos: number; a: number; b: number; }
+/** Un tramo de banda: sign 1 = la serie real por encima de su referencia, -1 = por debajo. */
+export interface Band { sign: 1 | -1; pts: BandPt[]; }
+
+/**
+ * Banda real-vs-referencia, partida EXACTAMENTE en el cruce. Las dos líneas son rectas entre sus puntos, así que entre
+ * dos posiciones consecutivas de la unión de sus puntos las dos son lineales: el cruce es la intersección de dos
+ * rectas (interpolación lineal de la diferencia). Sin banda donde falta una de las dos (respeta los huecos de cada
+ * línea tal como se dibujan, con su regla de huecos).
+ */
+export function gapBands(real: Pt[][], ref: Pt[][]): Band[] {
+    const out: Band[] = [];
+    for (const seg of real) {
+        if (seg.length < 2) continue;
+        const lo = seg[0].pos, hi = seg[seg.length - 1].pos;
+        const set = new Set<number>();
+        seg.forEach(p => set.add(p.pos));
+        for (const rs of ref) for (const p of rs) if (p.pos > lo && p.pos < hi) set.add(p.pos);
+        const pos = Array.from(set).sort((x, y) => x - y);
+        let cur: BandPt[] = [];
+        let sign = 0;
+        let prev: BandPt | null = null;
+        let prevSeg = -1;
+        const flush = () => { if (cur.length >= 2 && sign !== 0) out.push({ sign: sign as 1 | -1, pts: cur }); cur = []; sign = 0; };
+        for (const x of pos) {
+            const a = valueAt([seg], x);
+            const ri = segIndex(ref, x);
+            const b = ri >= 0 ? valueAt([ref[ri]], x) : null;
+            if (a === null || b === null) { flush(); prev = null; prevSeg = -1; continue; }
+            // La referencia se corta entre el punto anterior y este: la banda también.
+            if (prev && ri !== prevSeg) { flush(); prev = null; }
+            const pt: BandPt = { pos: x, a, b };
+            const d = a - b;
+            const sg = d > 0 ? 1 : d < 0 ? -1 : 0;
+            if (prev) {
+                const dp = prev.a - prev.b;
+                if ((dp > 0 && d < 0) || (dp < 0 && d > 0)) {
+                    const t = dp / (dp - d);
+                    const ca = prev.a + (a - prev.a) * t;
+                    const c: BandPt = { pos: prev.pos + (x - prev.pos) * t, a: ca, b: ca };
+                    cur.push(c);
+                    flush();
+                    cur = [c, pt];
+                    sign = sg;
+                    prev = pt; prevSeg = ri;
+                    continue;
+                }
+                // Tras un punto exactamente igual a la referencia, el signo puede cambiar sin cruce interpolado.
+                if (sg !== 0 && sign !== 0 && sg !== sign) { const z = cur[cur.length - 1]; flush(); cur = [z]; }
+            }
+            if (sign === 0 && sg !== 0) sign = sg;
+            cur.push(pt);
+            prev = pt; prevSeg = ri;
+        }
+        flush();
+    }
     return out;
 }

@@ -212,6 +212,30 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "def": "#252423",
                 "key": "Prop_endLabels_color",
                 "label": "Text color"
+            },
+            {
+                "name": "variance",
+                "type": "enum",
+                "def": "off",
+                "key": "Prop_endLabels_variance",
+                "label": "Variance vs plan or PY (Pro)",
+                "items": [
+                    [
+                        "off",
+                        "Enum_variance_off",
+                        "Off"
+                    ],
+                    [
+                        "pct",
+                        "Enum_variance_pct",
+                        "Percentage"
+                    ],
+                    [
+                        "abs",
+                        "Enum_variance_abs",
+                        "Absolute"
+                    ]
+                ]
             }
         ]
     },
@@ -268,6 +292,36 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "def": true,
                 "key": "Prop_references_legend",
                 "label": "Show in legend"
+            },
+            {
+                "name": "gapShading",
+                "type": "bool",
+                "def": false,
+                "key": "Prop_references_gapShading",
+                "label": "Gap shading (Pro)"
+            },
+            {
+                "name": "aboveColor",
+                "type": "fill",
+                "def": "#2E7D32",
+                "key": "Prop_references_aboveColor",
+                "label": "Above the reference"
+            },
+            {
+                "name": "belowColor",
+                "type": "fill",
+                "def": "#C62828",
+                "key": "Prop_references_belowColor",
+                "label": "Below the reference"
+            },
+            {
+                "name": "gapOpacity",
+                "type": "num",
+                "def": 18,
+                "key": "Prop_references_gapOpacity",
+                "label": "Shading opacity (%)",
+                "min": 5,
+                "max": 30
             }
         ]
     },
@@ -537,6 +591,27 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "def": "#E1DFDD",
                 "key": "Prop_smallMultiples_borderColor",
                 "label": "Panel border color"
+            },
+            {
+                "name": "sharedY",
+                "type": "bool",
+                "def": true,
+                "key": "Prop_smallMultiples_sharedY",
+                "label": "Shared Y axis"
+            }
+        ]
+    },
+    "dataColors": {
+        "name": "dataColors",
+        "key": "Obj_dataColors",
+        "label": "Series colors",
+        "props": [
+            {
+                "name": "fill",
+                "type": "fill",
+                "def": "",
+                "key": "Prop_dataColors_fill",
+                "label": "Color"
             }
         ]
     }
@@ -619,6 +694,17 @@ export const PANE: CardSpec[] = [
             {
                 "obj": "legend",
                 "toggle": "show"
+            }
+        ]
+    },
+    {
+        "uid": "smallMultiples",
+        "key": "Obj_smallMultiples",
+        "label": "Small multiples (Pro)",
+        "groups": [
+            {
+                "obj": "smallMultiples",
+                "toggle": null
             }
         ]
     }
