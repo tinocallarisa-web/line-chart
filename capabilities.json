@@ -65,6 +65,30 @@
       "descriptionKey": "Role_Forecast_Desc"
     },
     {
+      "displayName": "Target line",
+      "displayNameKey": "Role_TargetLine",
+      "name": "targetLine",
+      "kind": "Measure",
+      "description": "Reference measure: a target drawn as a dashed line, flat or stepped by period.",
+      "descriptionKey": "Role_TargetLine_Desc"
+    },
+    {
+      "displayName": "Events",
+      "displayNameKey": "Role_Events",
+      "name": "events",
+      "kind": "Measure",
+      "description": "Text measure or column (First): a vertical line with its text at each point where it is not blank.",
+      "descriptionKey": "Role_Events_Desc"
+    },
+    {
+      "displayName": "Annotations",
+      "displayNameKey": "Role_Annotations",
+      "name": "annotations",
+      "kind": "Measure",
+      "description": "Text measure or column (First): a note on the line at each point where it is not blank.",
+      "descriptionKey": "Role_Annotations_Desc"
+    },
+    {
       "displayName": "Tooltips",
       "displayNameKey": "Role_Tooltips",
       "name": "tooltips",
@@ -393,6 +417,202 @@
         }
       }
     },
+    "targetLine": {
+      "displayName": "Target line",
+      "displayNameKey": "Obj_targetLine",
+      "properties": {
+        "show": {
+          "displayName": "Show target line",
+          "displayNameKey": "Prop_targetLine_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "color": {
+          "displayName": "Line color",
+          "displayNameKey": "Prop_targetLine_color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "width": {
+          "displayName": "Line width",
+          "displayNameKey": "Prop_targetLine_width",
+          "type": {
+            "numeric": true
+          }
+        },
+        "lineStyle": {
+          "displayName": "Line style",
+          "displayNameKey": "Prop_targetLine_lineStyle",
+          "type": {
+            "enumeration": [
+              {
+                "value": "solid",
+                "displayName": "Solid",
+                "displayNameKey": "Enum_lineStyle_solid"
+              },
+              {
+                "value": "dashed",
+                "displayName": "Dashed",
+                "displayNameKey": "Enum_lineStyle_dashed"
+              },
+              {
+                "value": "dotted",
+                "displayName": "Dotted",
+                "displayNameKey": "Enum_lineStyle_dotted"
+              }
+            ]
+          }
+        },
+        "showLabel": {
+          "displayName": "Show label",
+          "displayNameKey": "Prop_targetLine_showLabel",
+          "type": {
+            "bool": true
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Prop_targetLine_fontSize",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
+    },
+    "events": {
+      "displayName": "Events (Pro)",
+      "displayNameKey": "Obj_events",
+      "properties": {
+        "show": {
+          "displayName": "Show events",
+          "displayNameKey": "Prop_events_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "color": {
+          "displayName": "Line color",
+          "displayNameKey": "Prop_events_color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "lineStyle": {
+          "displayName": "Line style",
+          "displayNameKey": "Prop_events_lineStyle",
+          "type": {
+            "enumeration": [
+              {
+                "value": "solid",
+                "displayName": "Solid",
+                "displayNameKey": "Enum_lineStyle_solid"
+              },
+              {
+                "value": "dashed",
+                "displayName": "Dashed",
+                "displayNameKey": "Enum_lineStyle_dashed"
+              },
+              {
+                "value": "dotted",
+                "displayName": "Dotted",
+                "displayNameKey": "Enum_lineStyle_dotted"
+              }
+            ]
+          }
+        },
+        "showLabels": {
+          "displayName": "Show labels",
+          "displayNameKey": "Prop_events_showLabels",
+          "type": {
+            "bool": true
+          }
+        },
+        "labelPosition": {
+          "displayName": "Label position",
+          "displayNameKey": "Prop_events_labelPosition",
+          "type": {
+            "enumeration": [
+              {
+                "value": "top",
+                "displayName": "Top",
+                "displayNameKey": "Enum_labelPosition_top"
+              },
+              {
+                "value": "bottom",
+                "displayName": "Bottom",
+                "displayNameKey": "Enum_labelPosition_bottom"
+              }
+            ]
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Prop_events_fontSize",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
+    },
+    "annotations": {
+      "displayName": "Annotations (Pro)",
+      "displayNameKey": "Obj_annotations",
+      "properties": {
+        "show": {
+          "displayName": "Show annotations",
+          "displayNameKey": "Prop_annotations_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Prop_annotations_fontSize",
+          "type": {
+            "numeric": true
+          }
+        },
+        "color": {
+          "displayName": "Text color",
+          "displayNameKey": "Prop_annotations_color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "background": {
+          "displayName": "Background",
+          "displayNameKey": "Prop_annotations_background",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "opacity": {
+          "displayName": "Background opacity (%)",
+          "displayNameKey": "Prop_annotations_opacity",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
+    },
     "xAxis": {
       "displayName": "X axis",
       "displayNameKey": "Obj_xAxis",
@@ -690,6 +910,120 @@
               }
             }
           }
+        },
+        "lineStyle": {
+          "displayName": "Line style",
+          "displayNameKey": "Prop_dataColors_lineStyle",
+          "type": {
+            "enumeration": [
+              {
+                "value": "solid",
+                "displayName": "Solid",
+                "displayNameKey": "Enum_lineStyle_solid"
+              },
+              {
+                "value": "dashed",
+                "displayName": "Dashed",
+                "displayNameKey": "Enum_lineStyle_dashed"
+              },
+              {
+                "value": "dotted",
+                "displayName": "Dotted",
+                "displayNameKey": "Enum_lineStyle_dotted"
+              }
+            ]
+          }
+        },
+        "lineWidth": {
+          "displayName": "Line width",
+          "displayNameKey": "Prop_dataColors_lineWidth",
+          "type": {
+            "numeric": true
+          }
+        },
+        "markers": {
+          "displayName": "Markers",
+          "displayNameKey": "Prop_dataColors_markers",
+          "type": {
+            "enumeration": [
+              {
+                "value": "auto",
+                "displayName": "Automatic",
+                "displayNameKey": "Enum_markers_auto"
+              },
+              {
+                "value": "on",
+                "displayName": "On",
+                "displayNameKey": "Enum_markers_on"
+              },
+              {
+                "value": "off",
+                "displayName": "Off",
+                "displayNameKey": "Enum_markers_off"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "sourceNote": {
+      "displayName": "Source note",
+      "displayNameKey": "Obj_sourceNote",
+      "properties": {
+        "show": {
+          "displayName": "Show source note",
+          "displayNameKey": "Prop_sourceNote_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "text": {
+          "displayName": "Text",
+          "displayNameKey": "Prop_sourceNote_text",
+          "type": {
+            "text": true
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Prop_sourceNote_fontSize",
+          "type": {
+            "numeric": true
+          }
+        },
+        "color": {
+          "displayName": "Text color",
+          "displayNameKey": "Prop_sourceNote_color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "align": {
+          "displayName": "Alignment",
+          "displayNameKey": "Prop_sourceNote_align",
+          "type": {
+            "enumeration": [
+              {
+                "value": "left",
+                "displayName": "Left",
+                "displayNameKey": "Enum_align_left"
+              },
+              {
+                "value": "center",
+                "displayName": "Center",
+                "displayNameKey": "Enum_align_center"
+              },
+              {
+                "value": "right",
+                "displayName": "Right",
+                "displayNameKey": "Enum_align_right"
+              }
+            ]
+          }
         }
       }
     }
@@ -720,6 +1054,15 @@
             "max": 1
           },
           "forecast": {
+            "max": 1
+          },
+          "targetLine": {
+            "max": 1
+          },
+          "events": {
+            "max": 1
+          },
+          "annotations": {
             "max": 1
           }
         }
@@ -774,6 +1117,21 @@
             {
               "for": {
                 "in": "forecast"
+              }
+            },
+            {
+              "for": {
+                "in": "targetLine"
+              }
+            },
+            {
+              "for": {
+                "in": "events"
+              }
+            },
+            {
+              "for": {
+                "in": "annotations"
               }
             },
             {

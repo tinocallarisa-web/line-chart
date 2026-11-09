@@ -54,6 +54,32 @@ OBJECTS = [
         ("belowColor", "Below the reference", "fill", "#C62828", {}),
         ("gapOpacity", "Shading opacity (%)", "num", 18, {"min": 5, "max": 30}),
     ]),
+    # Línea de objetivo (gratis): rol targetLine; plana si el valor no cambia, en escalones si cambia por periodo.
+    ("targetLine", "Target line", [
+        ("show", "Show target line", "bool", True, {}),
+        ("color", "Line color", "fill", "", {}),
+        ("width", "Line width", "num", 1.5, {"min": 0.5, "max": 6}),
+        ("lineStyle", "Line style", "enum", "dashed", {"items": [("solid", "Solid"), ("dashed", "Dashed"), ("dotted", "Dotted")]}),
+        ("showLabel", "Show label", "bool", True, {}),
+        ("fontSize", "Text size", "num", 10, {"min": 7, "max": 24}),
+    ]),
+    # Eventos (Pro): rol events, texto; línea vertical + etiqueta con anticolisión.
+    ("events", "Events (Pro)", [
+        ("show", "Show events", "bool", True, {}),
+        ("color", "Line color", "fill", "", {}),
+        ("lineStyle", "Line style", "enum", "dashed", {"items": [("solid", "Solid"), ("dashed", "Dashed"), ("dotted", "Dotted")]}),
+        ("showLabels", "Show labels", "bool", True, {}),
+        ("labelPosition", "Label position", "enum", "top", {"items": [("top", "Top"), ("bottom", "Bottom")]}),
+        ("fontSize", "Text size", "num", 9, {"min": 7, "max": 18}),
+    ]),
+    # Anotaciones (Pro): rol annotations, texto; nota anclada al punto de la primera medida (o de su marca de leyenda).
+    ("annotations", "Annotations (Pro)", [
+        ("show", "Show annotations", "bool", True, {}),
+        ("fontSize", "Text size", "num", 9, {"min": 7, "max": 18}),
+        ("color", "Text color", "fill", "", {}),
+        ("background", "Background", "fill", "", {}),
+        ("opacity", "Background opacity (%)", "num", 85, {"min": 0, "max": 100}),
+    ]),
     ("xAxis", "X axis", [
         ("show", "Show X axis", "bool", True, {}),
         ("fontSize", "Text size", "num", 10, {"min": 7, "max": 24}),
@@ -96,8 +122,20 @@ OBJECTS = [
     ]),
     # Color por serie (gratis, como el nativo): se guarda con selector (medida o valor de leyenda); el panel lo construye
     # el visual en la tarjeta Lines. Sin tarjeta propia en PANE.
+    # Trazo por serie (gratis), mismo selector que el color: estilo, grosor y marcadores. Panel en código (contenedor).
     ("dataColors", "Series colors", [
         ("fill", "Color", "fill", "", {}),
+        ("lineStyle", "Line style", "enum", "solid", {"items": [("solid", "Solid"), ("dashed", "Dashed"), ("dotted", "Dotted")]}),
+        ("lineWidth", "Line width", "num", 2, {"min": 0.5, "max": 8}),
+        ("markers", "Markers", "enum", "auto", {"items": [("auto", "Automatic"), ("on", "On"), ("off", "Off")]}),
+    ]),
+    # Nota de fuente (gratis): texto pequeño al pie, resta su alto del gráfico.
+    ("sourceNote", "Source note", [
+        ("show", "Show source note", "bool", False, {}),
+        ("text", "Text", "text", "", {}),
+        ("fontSize", "Text size", "num", 9, {"min": 7, "max": 16}),
+        ("color", "Text color", "fill", "", {}),
+        ("align", "Alignment", "enum", "left", {"items": [("left", "Left"), ("center", "Center"), ("right", "Right")]}),
     ]),
 ]
 
@@ -106,10 +144,14 @@ PANE = [
     ("style", "Style template", [("style", None, None)]),
     ("lines", "Lines", [("lines", None, None)]),
     ("endLabels", "End labels", [("endLabels", None, "show")]),
+    ("events", "Events (Pro)", [("events", None, "show")]),
+    ("annotations", "Annotations (Pro)", [("annotations", None, "show")]),
     ("references", "Plan, prior year and forecast", [("references", None, "show")]),
+    ("targetLine", "Target line", [("targetLine", None, "show")]),
     ("axes", "Axes", [("xAxis", "X axis", "show"), ("yAxis", "Y axis", "show"), ("y2Axis", "Secondary Y axis", "show")]),
     ("legend", "Legend", [("legend", None, "show")]),
     ("smallMultiples", "Small multiples (Pro)", [("smallMultiples", None, None)]),
+    ("sourceNote", "Source note", [("sourceNote", None, "show")]),
 ]
 
 

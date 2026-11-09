@@ -143,6 +143,9 @@ interface LegendItem { label: string; color: string; kind: "series" | "ref"; das
 
 interface Drawn { s: Series; y: d3.ScaleLinear<number, number>; segs: Pt[][]; }
 
+/** Caja ocupada por una etiqueta (anticolisión de eventos, anotaciones y objetivo). */
+interface Box { x0: number; y0: number; x1: number; y1: number; }
+
 /** Un panel dibujado (uno solo sin small multiples): su modelo, su caja y sus escalas, para el puntero y el teclado. */
 interface PanelState {
     model: Model; g: Sel<SVGGElement>; ox: number; oy: number;
@@ -426,6 +429,9 @@ export class Visual implements IVisual {
         const cols = dv?.metadata?.columns ?? [];
         const hasRef = cols.some(c => !!(c.roles?.plan || c.roles?.previousYear));
         const hasSm = cols.some(c => !!c.roles?.smallMultiple);
+        // Eventos y anotaciones: poner el campo ES la petición (como Small multiples), salvo que la tarjeta esté apagada.
+        const hasEv = cols.some(c => !!c.roles?.events) && objs.events?.show !== false;
+        const hasAn = cols.some(c => !!c.roles?.annotations) && objs.annotations?.show !== false;
         const tpl = String(objs.style?.template ?? "");
         const variance = String(objs.endLabels?.variance ?? "off");
         const groups: [string, boolean, string][] = [
@@ -433,6 +439,8 @@ export class Visual implements IVisual {
             ["gap shading", objs.references?.gapShading === true && objs.references?.show !== false && hasRef, "gap=" + (objs.references?.gapShading === true)],
             ["variance label", (variance === "pct" || variance === "abs") && objs.endLabels?.show !== false && hasRef, "var=" + variance],
             ["small multiples", hasSm, "sm=" + hasSm],
+            ["events", hasEv, "ev=" + hasEv],
+            ["annotations", hasAn, "an=" + hasAn],
         ];
         const labels: string[] = [];
         const parts: string[] = [];
@@ -457,6 +465,8 @@ export class Visual implements IVisual {
             case "gap shading": return this.t("Feat_gap", "gap shading");
             case "variance label": return this.t("Feat_variance", "variance label");
             case "small multiples": return this.t("Feat_panels", "small multiples");
+            case "events": return this.t("Feat_events", "events");
+            case "annotations": return this.t("Feat_annotations", "annotations");
             default: return id;
         }
     }
@@ -661,14 +671,18 @@ export class Visual implements IVisual {
             this.updateWatermark(W, H);
             return;
         }
-        if (this.multi) this.drawPanels(W, H);
+        // Nota de fuente: una vez, al pie de todo; su alto se resta del gráfico (o de la rejilla de paneles).
+        const noteH = this.sourceNoteHeight(W, H);
+        const Hc = H - noteH;
+        if (this.multi) this.drawPanels(W, Hc);
         else {
             const p = this.newPanel(m, this.canvas, 0, 0);
-            this.draw(W, H, false);
+            this.draw(W, Hc, false);
             this.savePanel(p);
         }
+        if (noteH) this.drawSourceNote(W, H, noteH);
         if (TEST_STAMP && W >= 200) {
-            this.svg.append("text").attr("x", W - 4).attr("y", H - 3).attr("text-anchor", "end").style("font-size", "9px")
+            this.svg.append("text").attr("x", W - 4).attr("y", noteH ? 10 : H - 3).attr("text-anchor", "end").style("font-size", "9px")
                 .attr("fill", this.hc ? this.hcFg : "#A19F9D").text("[" + TEST_STAMP + "]");
         }
         this.activate(this.panels[0]);
@@ -681,6 +695,30 @@ export class Visual implements IVisual {
     }
 
     private int(n: number): string { return this.formatter("#,0").format(n); }
+
+    // ── Nota de fuente (gratis) ──────────────────────────────────────────────
+
+    /** Alto de la nota de fuente (0 si está apagada, vacía o no cabe: en un mosaico pequeño manda el gráfico). */
+    private sourceNoteHeight(W: number, H: number): number {
+        const n = this.settings.sourceNote;
+        if (!n?.show || !String(n.text ?? "").trim() || W < 120) return 0;
+        const fs = Number(n.fontSize);
+        const h = Math.ceil(fs * 1.25) + 6;
+        return H - h >= 100 ? h : 0;
+    }
+
+    private drawSourceNote(W: number, H: number, h: number): void {
+        const n = this.settings.sourceNote;
+        const fs = Number(n.fontSize);
+        const align = String(n.align);
+        const x = align === "center" ? W / 2 : align === "right" ? W - 6 : 6;
+        const text = String(n.text).replace(/\s+/g, " ").trim();
+        const color = this.hc ? this.hcFg : (n.color ? String(n.color) : this.axisColor("xAxis"));
+        const t = this.svg.append("text").attr("class", "lc-source").attr("x", x).attr("y", H - h / 2).attr("dy", "0.32em")
+            .attr("text-anchor", align === "center" ? "middle" : align === "right" ? "end" : "start")
+            .style("font-size", fs + "px").attr("fill", color).text(this.fit(text, fs, W - 12));
+        t.append("title").text(text);
+    }
 
     /** Colores sobre TODAS las series (de todos los paneles), para que una marca tenga el mismo en cada panel. */
     private assignColors(): void {
@@ -804,6 +842,15 @@ export class Visual implements IVisual {
         if (m.segment) out.push(this.t("UI_Segment", "Power BI sent only part of the data (over 30,000 combinations): the chart is incomplete. Filter it or use a coarser axis."));
         const missing = this.models.reduce((a, pm) => a + pm.missingAxis, 0);
         if (missing) out.push(this.tf("UI_NoAxis", "{0} values without a date on the axis", this.int(missing)));
+        // Un campo de texto que llega como número (Power BI lo dejó en Count): no se pinta "1"; se avisa al autor.
+        if (this.editing) {
+            if (m.eventsField && this.models.some(pm => (pm.eventsField?.nonText ?? 0) > 0)) {
+                out.push(this.t("UI_EventsNotText", "Events expects text: set the field to First"));
+            }
+            if (m.notesField && this.models.some(pm => (pm.notesField?.nonText ?? 0) > 0)) {
+                out.push(this.t("UI_NotesNotText", "Annotations expects text: set the field to First"));
+            }
+        }
         const blank = this.t("UI_Blank", "(Blank)");
         if (m.smCol && m.smPanels > 1 && !this.multi) {
             out.push(this.tf("UI_SmFirst", "Small multiples are part of Pro: showing {0} only", m.smShown || blank));
@@ -811,6 +858,11 @@ export class Visual implements IVisual {
             out.push(this.tf("UI_SmPreview", "Pro preview: the first {0} of {1} panels", String(this.models.length), String(m.smPanels)));
         }
         return out;
+    }
+
+    /** El rol del eje Y principal (el izquierdo): Values, o Secondary si solo hay secundarios. */
+    private primaryRole(m: Model): "values" | "secondaryValues" {
+        return m.series.some(x => x.role === "values") ? "values" : "secondaryValues";
     }
 
     private yFormat(role: "values" | "secondaryValues"): string | undefined {
@@ -821,10 +873,15 @@ export class Visual implements IVisual {
     private domainOf(role: "values" | "secondaryValues", zero: boolean, withRefs: boolean, models: Model[] = [this.model]): [number, number] | null {
         let lo = Infinity, hi = -Infinity;
         const take = (v: number | null) => { if (v !== null && isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } };
-        for (const m of models) for (const s of m.series) {
-            if (s.role !== role) continue;
-            s.values.forEach(take);
-            if (withRefs) for (const r of s.refs) r.values.forEach(take);
+        const targetOn = !!this.settings.targetLine?.show;
+        for (const m of models) {
+            for (const s of m.series) {
+                if (s.role !== role) continue;
+                s.values.forEach(take);
+                if (withRefs) for (const r of s.refs) r.values.forEach(take);
+            }
+            // La línea de objetivo va en el eje principal: cuenta en su escala (no se sale por arriba).
+            if (targetOn && m.target && this.primaryRole(m) === role) m.target.values.forEach(take);
         }
         if (lo === Infinity) return null;
         if (this.settings.lines.missing === "zero" || zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
@@ -873,8 +930,10 @@ export class Visual implements IVisual {
         if (mode === "full") this.drawYAxes(L, hasY1, hasY2);
 
         // Capas: banda debajo de todo, luego referencias y líneas.
+        const gEvents = this.canvas.append("g").attr("class", "lc-events");
         const gBands = this.canvas.append("g").attr("class", "lc-bands");
         const gRefs = this.canvas.append("g").attr("class", "lc-refs");
+        const gTarget = this.canvas.append("g").attr("class", "lc-target");
         const gLines = this.canvas.append("g").attr("class", "lc-lines");
         this.canvas.append("g").attr("class", "lc-sel");
         this.canvas.append("g").attr("class", "lc-cross");
@@ -894,16 +953,18 @@ export class Visual implements IVisual {
             this.drawn.push({ s: ser, y, segs });
             const g = gLines.append("g").attr("class", "lc-series").attr("data-id", ser.id);
             const color = ser.color;
-            const dash = hc ? HC_DASH[si % HC_DASH.length] : "";
+            // Trazo por serie (panel Lines): grosor y estilo propios; alto contraste mantiene sus trazos distintos.
+            const slw = ser.customStroke.width ?? lw;
+            const dash = hc ? HC_DASH[si % HC_DASH.length] : this.seriesDash(ser, slw);
             const path = (pts: Pt[], cls: string, opacity: number) => {
                 line.y(p => y(p.v));
                 g.append("path").attr("class", cls).attr("d", line(pts)).attr("fill", "none").attr("stroke", color)
-                    .attr("stroke-width", hc ? Math.max(lw, 2) : lw).attr("stroke-dasharray", dash || null)
+                    .attr("stroke-width", hc ? Math.max(slw, 2) : slw).attr("stroke-dasharray", dash || null)
                     .attr("stroke-linejoin", "round").attr("stroke-linecap", "round").attr("opacity", opacity);
             };
             const isolated = (pts: Pt[], opacity: number) => {
                 g.append("circle").attr("class", "lc-dot").attr("cx", this.x(pts[0].pos)).attr("cy", y(pts[0].v))
-                    .attr("r", Math.max(lw, 2)).attr("fill", color).attr("opacity", opacity);
+                    .attr("r", Math.max(slw, 2)).attr("fill", color).attr("opacity", opacity);
             };
             const base = m.hasHighlights ? 0.28 : 1;
             for (const seg of segs) { if (seg.length > 1) path(seg, "lc-line", base); else isolated(seg, base); }
@@ -912,7 +973,9 @@ export class Visual implements IVisual {
                     if (seg.length > 1) path(seg, "lc-line lc-hl", 1); else isolated(seg, 1);
                 }
             }
-            if (showMarkers) {
+            const sm = ser.customStroke.markers;
+            const serMarkers = mode !== "spark" && (hc ? showMarkers : sm === "on" ? true : sm === "off" ? false : showMarkers);
+            if (serMarkers) {
                 const sym = hc ? d3.symbol().type(HC_SYMBOLS[si % HC_SYMBOLS.length]).size(Math.pow(Number(s.lines.markerSize) * 2 + 1, 2)) : null;
                 // Alto contraste: un marcador propio cada pocos puntos, desfasado por serie para que no se tapen.
                 const step = Math.max(1, Math.ceil(K / 16));
@@ -929,6 +992,12 @@ export class Visual implements IVisual {
             if (refsOn) this.drawRefs(gRefs, ser, y);
             if (bandOn) this.drawBand(gBands, ser, y, segs);
         });
+
+        // Objetivo (gratis) sobre las referencias; eventos (Pro) detrás de las líneas; anotaciones (Pro) encima de todo.
+        const evBoxes: Box[] = [];
+        if (mode !== "spark" && s.targetLine.show && m.target) this.drawTarget(gTarget, L, evBoxes);
+        if (mode !== "spark" && this.eventsOn()) this.drawEvents(gEvents, L, evBoxes);
+        if (mode === "full" && this.notesOn()) this.drawAnnotations(L, yOf, evBoxes);
 
         if (L.labels) this.drawEndLabels(L, yOf);
         if (L.legend) this.drawLegend(L);
@@ -1229,6 +1298,244 @@ export class Visual implements IVisual {
         }
     }
 
+    // ── Trazo por serie, objetivo, eventos y anotaciones ─────────────────────
+
+    /** Patrón de trazo para Solid / Dashed / Dotted, proporcional al grosor (Dotted necesita linecap round). */
+    private lineDash(style: string, w: number): string {
+        if (style === "dashed") return Math.max(4, 3 * w).toFixed(1) + "," + Math.max(3, 2 * w).toFixed(1);
+        if (style === "dotted") return "0.1," + Math.max(3, 2.5 * w).toFixed(1);
+        return "";
+    }
+
+    private seriesDash(ser: Series, w: number): string {
+        return this.lineDash(ser.customStroke.style ?? "solid", w);
+    }
+
+    /** Eventos: con campo, con algún texto, tarjeta encendida y Pro (o su vista previa editando). */
+    private eventsOn(): boolean {
+        const m = this.model;
+        return !!this.settings.events?.show && !!m?.events && m.events.some(t => t !== null) && this.previewOf("events");
+    }
+
+    private notesOn(): boolean {
+        const m = this.model;
+        return !!this.settings.annotations?.show && !!m?.series.some(s => s.notes?.some(t => t !== null)) && this.previewOf("annotations");
+    }
+
+    /** Color del objetivo: el elegido; si no, el de referencia/plan del estilo activo (como el plan). */
+    private targetColor(): string {
+        if (this.hc) return this.hcFg;
+        const c = this.settings.targetLine.color;
+        return c ? String(c) : this.refColor("plan", null);
+    }
+
+    private static overlaps(a: Box, list: Box[], pad = 2): boolean {
+        return list.some(b => a.x0 < b.x1 + pad && a.x1 + pad > b.x0 && a.y0 < b.y1 + pad && a.y1 + pad > b.y0);
+    }
+
+    /**
+     * Línea de objetivo (rol Target line). Un único valor en todo el eje: recta horizontal de lado a lado. Si cambia
+     * con el eje: escalones, cada valor cubre SU periodo (centrado en su punto; si el objetivo es más grueso que el eje,
+     * p. ej. mensual sobre eje diario, desde su punto hasta el siguiente). Un hueco de más de 1,5 periodos la corta.
+     * Etiqueta al final con nombre y último valor.
+     */
+    private drawTarget(g: d3.Selection<SVGGElement, unknown, null, undefined>, L: Layout, boxes: Box[]): void {
+        const m = this.model, t = m.target, s = this.settings.targetLine;
+        const y = this.y1;
+        const color = this.targetColor();
+        const w = this.hc ? 1.5 : Number(s.width);
+        const dash = this.lineDash(String(s.lineStyle), w);
+        const xl = L.left, xr = L.left + L.plotW;
+        const clamp = (x: number) => Math.max(xl, Math.min(xr, x));
+        const pts: { k: number; x: number; v: number }[] = [];
+        t.values.forEach((v, k) => { if (v !== null) pts.push({ k, x: this.x(m.keys[k].pos), v }); });
+        if (!pts.length) return;
+        let d = "";
+        let endX = xr, endV = pts[pts.length - 1].v, endK = pts[pts.length - 1].k;
+        if (t.constant) {
+            const yy = y(pts[0].v);
+            d = `M${xl.toFixed(2)},${yy.toFixed(2)}H${xr.toFixed(2)}`;
+        } else {
+            const own = cadenceOf(pts.map(p => m.keys[p.k].pos)) || m.cadence;
+            const coarse = own > m.cadence * 1.5;
+            const gapPos = own * 1.5 + 1e-9;
+            const segs: typeof pts[] = [];
+            let cur: typeof pts = [pts[0]];
+            for (let i = 1; i < pts.length; i++) {
+                if (m.keys[pts[i].k].pos - m.keys[pts[i - 1].k].pos > gapPos) { segs.push(cur); cur = [pts[i]]; } else cur.push(pts[i]);
+            }
+            segs.push(cur);
+            // Medio periodo en píxeles, para un tramo de un solo punto.
+            const halfPx = Math.max(4, Math.abs(this.x(m.keys[0].pos + own) - this.x(m.keys[0].pos)) / 2);
+            for (const sg of segs) {
+                const n = sg.length;
+                const b: number[] = [];
+                for (let i = 0; i <= n; i++) {
+                    if (coarse) b.push(i < n ? sg[i].x : sg[n - 1].x + (n > 1 ? sg[n - 1].x - sg[n - 2].x : 2 * halfPx));
+                    else if (i === 0) b.push(sg[0].x - (n > 1 ? (sg[1].x - sg[0].x) / 2 : halfPx));
+                    else if (i === n) b.push(sg[n - 1].x + (n > 1 ? (sg[n - 1].x - sg[n - 2].x) / 2 : halfPx));
+                    else b.push((sg[i - 1].x + sg[i].x) / 2);
+                }
+                d += `M${clamp(b[0]).toFixed(2)},${y(sg[0].v).toFixed(2)}`;
+                for (let i = 0; i < n; i++) {
+                    if (i > 0 && sg[i].v !== sg[i - 1].v) d += `V${y(sg[i].v).toFixed(2)}`;
+                    d += `H${clamp(b[i + 1]).toFixed(2)}`;
+                }
+                endX = clamp(b[n]); endV = sg[n - 1].v; endK = sg[n - 1].k;
+            }
+        }
+        g.append("path").attr("class", "lc-target-line").attr("d", d).attr("fill", "none").attr("stroke", color)
+            .attr("stroke-width", w).attr("stroke-dasharray", dash || null).attr("stroke-linecap", "round")
+            .style("pointer-events", this.formatMode ? null : "none");
+        if (!s.showLabel || L.mode !== "full") return;
+        const fs = Number(s.fontSize);
+        const txt = this.fit(t.name + "  " + this.fmtShort(endV, t.formats[endK] ?? t.format), fs, Math.max(40, L.plotW * 0.45));
+        if (!txt) return;
+        const tw = this.measure(txt, fs, true);
+        const ly = y(endV);
+        const above = ly - 4 - fs >= L.top;
+        const ty = above ? ly - 5 : ly + fs + 3;
+        const lbl = this.canvas.append("text").attr("class", "lc-target-label").attr("x", endX - 3).attr("y", ty)
+            .attr("text-anchor", "end").style("font-size", fs + "px").style("font-weight", "600")
+            .attr("fill", this.readable(color, this.ink)).attr("stroke", this.bgColor).attr("stroke-width", 3)
+            .attr("stroke-linejoin", "round").style("paint-order", "stroke").style("pointer-events", this.formatMode ? null : "none").text(txt);
+        lbl.append("title").text(t.name);
+        boxes.push({ x0: endX - 3 - tw, y0: ty - fs, x1: endX - 3, y1: ty + 3 });
+    }
+
+    /**
+     * Eventos (Pro): una línea vertical fina por punto del eje con texto, y su etiqueta arriba (o abajo) en una caja.
+     * Anticolisión: de izquierda a derecha, cada etiqueta va en la primera fila libre (hasta 4); si no cabe entera, se
+     * recorta con … hasta el siguiente evento; si ni así, no se pinta (el texto completo siempre está en el tooltip).
+     */
+    private drawEvents(g: d3.Selection<SVGGElement, unknown, null, undefined>, L: Layout, boxes: Box[]): void {
+        const m = this.model, s = this.settings.events;
+        const color = this.hc ? this.hcFg : (s.color ? String(s.color) : this.axisColor("xAxis"));
+        const dash = this.lineDash(String(s.lineStyle), 1);
+        const items: { k: number; t: string; x: number }[] = [];
+        m.events.forEach((t, k) => { if (t) items.push({ k, t, x: this.x(m.keys[k].pos) }); });
+        for (const it of items) {
+            g.append("line").attr("class", "lc-event").attr("x1", it.x).attr("x2", it.x).attr("y1", L.top).attr("y2", L.top + L.plotH)
+                .attr("stroke", color).attr("stroke-width", 1).attr("stroke-dasharray", dash || null).attr("stroke-linecap", "round")
+                .attr("opacity", this.hc ? 1 : 0.8).style("pointer-events", this.formatMode ? null : "none");
+        }
+        // Visual pequeño: solo las líneas (las etiquetas taparían los datos; el texto sigue en el tooltip).
+        if (!s.showLabels || L.mode !== "full" || L.plotH < 160 || L.plotW < 300) return;
+        const fs = Number(s.fontSize);
+        const rowH = fs + 7;
+        const maxRows = Math.max(1, Math.min(4, Math.floor((L.plotH * 0.3) / rowH)));
+        const maxW = Math.max(48, Math.min(170, L.plotW * 0.3));
+        const right: number[] = new Array(maxRows).fill(-Infinity);
+        const bottom = String(s.labelPosition) === "bottom";
+        const xr = L.left + L.plotW;
+        const gl = this.canvas.append("g").attr("class", "lc-event-labels").style("pointer-events", this.formatMode ? null : "none");
+        const textColor = this.hc ? this.hcFg : this.readable(color, this.ink);
+        const rowY = (row: number) => bottom ? L.top + L.plotH - 2 - (row + 1) * rowH + 1 : L.top + 2 + row * rowH;
+        const fixed = boxes.slice();   // lo ya colocado (la etiqueta del objetivo)
+        const place = (it: { x: number }, txt: string): { x0: number; w: number; row: number } | null => {
+            const w = this.measure(txt, fs) + 8;
+            let x0 = it.x + 2;
+            if (x0 + w > xr) x0 = it.x - 2 - w;
+            if (x0 < L.left) return null;
+            for (let row = 0; row < maxRows; row++) {
+                if (x0 <= right[row] + 3) continue;
+                const y0 = rowY(row);
+                if (Visual.overlaps({ x0, y0, x1: x0 + w, y1: y0 + rowH - 2 }, fixed)) continue;
+                return { x0, w, row };
+            }
+            return null;
+        };
+        items.forEach((it, i) => {
+            let txt = this.fit(it.t, fs, maxW);
+            let p = txt ? place(it, txt) : null;
+            if (!p) {
+                // Recortar hasta el siguiente evento (mínimo unas letras); si no, se queda sin etiqueta.
+                const next = i + 1 < items.length ? items[i + 1].x : xr;
+                const room = Math.min(maxW, next - it.x - 14);
+                txt = room >= 34 ? this.fit(it.t, fs, room) : "";
+                p = txt ? place(it, txt) : null;
+            }
+            if (!p) return;
+            right[p.row] = p.x0 + p.w;
+            const y0 = rowY(p.row);
+            const h = rowH - 2;
+            gl.append("rect").attr("class", "lc-event-box").attr("x", p.x0).attr("y", y0).attr("width", p.w).attr("height", h).attr("rx", 2)
+                .attr("fill", this.hc ? this.hcBg : this.bgColor).attr("fill-opacity", this.hc ? 1 : 0.88)
+                .attr("stroke", color).attr("stroke-width", 0.6).attr("stroke-opacity", 0.7);
+            gl.append("text").attr("class", "lc-event-label").attr("x", p.x0 + 4).attr("y", y0 + h / 2).attr("dy", "0.34em")
+                .style("font-size", fs + "px").attr("fill", textColor).text(txt);
+            boxes.push({ x0: p.x0, y0, x1: p.x0 + p.w, y1: y0 + h });
+        });
+    }
+
+    /**
+     * Anotaciones (Pro): nota anclada al punto de la serie (primera medida; con leyenda, la de su marca). Punto
+     * resaltado + caja semitransparente con línea guía corta. Cuatro posiciones candidatas alrededor del punto; la
+     * primera que no pisa otra nota, una etiqueta de evento o el objetivo. Si ninguna cabe, solo el punto (el texto,
+     * en el tooltip). Como mucho 60 cajas: con miles de filas no se paga el coste.
+     */
+    private drawAnnotations(L: Layout, yOf: (x: Series) => d3.ScaleLinear<number, number>, obstacles: Box[]): void {
+        const s = this.settings.annotations;
+        const fs = Number(s.fontSize);
+        const hc = this.hc;
+        const textColor = hc ? this.hcFg : (s.color ? String(s.color) : this.ink);
+        const bg = hc ? this.hcBg : (s.background ? String(s.background) : this.bgColor);
+        const op = hc ? 1 : Math.max(0, Math.min(1, Number(s.opacity) / 100));
+        const g = this.canvas.append("g").attr("class", "lc-annotations").style("pointer-events", this.formatMode ? null : "none");
+        const boxes = obstacles.slice();
+        const maxW = Math.max(50, Math.min(180, L.plotW * 0.35));
+        const xl = L.left, xr = L.left + L.plotW, yt = L.top, yb = L.top + L.plotH;
+        const items: { ser: Series; k: number; t: string; x: number; y: number }[] = [];
+        for (const d of this.drawn) {
+            if (!d.s.notes) continue;
+            const y = yOf(d.s);
+            d.s.notes.forEach((t, k) => {
+                const v = d.s.values[k];
+                if (t && v !== null) items.push({ ser: d.s, k, t, x: this.x(this.model.keys[k].pos), y: y(v) });
+            });
+        }
+        items.sort((a, b) => a.x - b.x);
+        // Visual pequeño: solo el punto resaltado (las cajas taparían la línea); el texto, en el tooltip.
+        let placed = L.plotH >= 150 && L.plotW >= 260 ? 0 : Infinity;
+        const h = fs + 8;
+        for (const it of items) {
+            const ng = g.append("g").attr("class", "lc-note").attr("data-id", it.ser.id);
+            const stroke = hc ? this.hcFg : it.ser.color;
+            if (placed >= 60) { this.notePoint(ng, it, stroke, bg); continue; }
+            let box: Box | null = null;
+            let txt = "";
+            for (const lim of [maxW, maxW * 0.55]) {
+                txt = this.fit(it.t, fs, lim);
+                if (!txt) break;
+                const w = this.measure(txt, fs) + 10;
+                const cands: [number, number][] = [[it.x + 8, it.y - 14 - h], [it.x - 8 - w, it.y - 14 - h], [it.x + 8, it.y + 14], [it.x - 8 - w, it.y + 14]];
+                for (const [x0, y0] of cands) {
+                    const b: Box = { x0, y0, x1: x0 + w, y1: y0 + h };
+                    if (b.x0 < xl || b.x1 > xr || b.y0 < yt || b.y1 > yb || Visual.overlaps(b, boxes)) continue;
+                    box = b; break;
+                }
+                if (box) break;
+            }
+            if (box) {
+                const right = box.x0 > it.x, above = box.y1 < it.y;
+                const ax = right ? box.x0 + 3 : box.x1 - 3, ay = above ? box.y1 : box.y0;
+                ng.append("line").attr("x1", it.x).attr("y1", it.y).attr("x2", ax).attr("y2", ay).attr("stroke", stroke).attr("stroke-width", 1);
+                ng.append("rect").attr("x", box.x0).attr("y", box.y0).attr("width", box.x1 - box.x0).attr("height", h).attr("rx", 3)
+                    .attr("fill", bg).attr("fill-opacity", op).attr("stroke", stroke).attr("stroke-width", 0.8);
+                ng.append("text").attr("class", "lc-note-text").attr("x", box.x0 + 5).attr("y", box.y0 + h / 2).attr("dy", "0.34em")
+                    .style("font-size", fs + "px").attr("fill", textColor).text(txt);
+                boxes.push(box);
+                placed++;
+            }
+            this.notePoint(ng, it, stroke, bg);
+        }
+    }
+
+    private notePoint(g: d3.Selection<SVGGElement, unknown, null, undefined>, it: { x: number; y: number }, stroke: string, bg: string): void {
+        g.append("circle").attr("class", "lc-note-pt").attr("cx", it.x).attr("cy", it.y).attr("r", 4.5)
+            .attr("fill", bg).attr("stroke", stroke).attr("stroke-width", 2.2);
+    }
+
     // ── Etiquetas al final ───────────────────────────────────────────────────
 
     /**
@@ -1357,7 +1664,7 @@ export class Visual implements IVisual {
         const fs = Number(s.legend.fontSize);
         // Todas las series de todos los paneles (una leyenda para todo el visual).
         const items: LegendItem[] = this.allSeries.map((x, i) => ({ label: x.name, color: x.color, kind: "series" as const,
-            dash: this.hc ? HC_DASH[i % HC_DASH.length] : "", series: x, w: 0, idx: i }));
+            dash: this.hc ? HC_DASH[i % HC_DASH.length] : this.seriesDash(x, 2), series: x, w: 0, idx: i }));
         if (s.references.show && s.references.legend) {
             const kinds = REF_KINDS_ORDER.filter(k => this.models.some(pm => pm.refKinds.indexOf(k) >= 0));
             void m;
@@ -1396,7 +1703,8 @@ export class Visual implements IVisual {
                 const ig = g.append("g").attr("class", "lc-legend-item").attr("role", "listitem")
                     .attr("data-id", it.series ? it.series.id : "ref:" + it.ref);
                 ig.append("line").attr("x1", x).attr("x2", x + 16).attr("y1", cy).attr("y2", cy).attr("stroke", it.color)
-                    .attr("stroke-width", it.kind === "ref" ? 1.5 : 2.5).attr("stroke-dasharray", it.dash || null);
+                    .attr("stroke-width", it.kind === "ref" ? 1.5 : 2.5).attr("stroke-dasharray", it.dash || null)
+                    .attr("stroke-linecap", it.dash && it.dash.indexOf("0.1,") === 0 ? "round" : null);
                 const extra = last ? "  " + this.tf("UI_More", "+{0} more", String(all.length - shown)) : "";
                 const lbl = this.fit(it.label, fs, 160);
                 ig.append("text").attr("x", x + 21).attr("y", cy).attr("dy", "0.32em").style("font-size", fs + "px").attr("fill", color)
@@ -1572,6 +1880,9 @@ export class Visual implements IVisual {
         const items: VisualTooltipDataItem[] = [];
         if (this.multi && m.smCol) items.push({ displayName: m.smCol.source.displayName, value: m.smShown || this.t("UI_Blank", "(Blank)") });
         items.push({ displayName: m.axisName, value: this.keyLabel(k) });
+        // El texto completo del evento (la etiqueta puede ir recortada o sin pintar por anticolisión).
+        if (this.eventsOn() && m.events[k]) items.push({ displayName: m.eventsField.name, value: m.events[k] });
+        const notesOn = this.notesOn();
         const list = m.series.filter(s => s.rows[k] >= 0 || s.values[k] !== null).slice();
         list.sort((a, b) => (a === focus ? -1 : b === focus ? 1 : (b.values[k] ?? -Infinity) - (a.values[k] ?? -Infinity)));
         for (const s of list) {
@@ -1582,6 +1893,13 @@ export class Visual implements IVisual {
                 const nm = m.legendCol ? r.name + " · " + (s.legend ?? "") : r.name;
                 items.push({ displayName: nm, value: this.fmtFull(r.values[k], r.formats[k] ?? r.format), color: this.hc ? this.hcFg : "#8A8886" });
             }
+            if (notesOn && s.notes?.[k]) {
+                items.push({ displayName: m.legendCol ? m.notesField.name + " · " + (s.legend ?? "") : m.notesField.name, value: s.notes[k] });
+            }
+        }
+        const tg = m.target;
+        if (tg && this.settings.targetLine.show && tg.values[k] !== null) {
+            items.push({ displayName: tg.name, value: this.fmtFull(tg.values[k], tg.formats[k] ?? tg.format), color: this.targetColor() });
         }
         const rowOf = (focus ?? list[0])?.rows[k] ?? -1;
         if (rowOf >= 0) for (const c of m.tooltipCols) {
@@ -1700,7 +2018,7 @@ export class Visual implements IVisual {
         }
         const anySeries = selSeries.size > 0;
         const anyPoint = selPoints.length > 0;
-        this.canvas.selectAll<SVGGElement, unknown>(".lc-series, .lc-ref, .lc-band, .lc-endlabel").each((_d, i, nodes) => {
+        this.canvas.selectAll<SVGGElement, unknown>(".lc-series, .lc-ref, .lc-band, .lc-endlabel, .lc-note").each((_d, i, nodes) => {
             const el = nodes[i];
             const id = el.getAttribute("data-id");
             const ser = m.series.find(s => s.id === id);
@@ -1739,7 +2057,11 @@ export class Visual implements IVisual {
         const m = this.model;
         const k = this.focusKey;
         const list = this.keyboardSeries(k);
-        if (!list.length) { this.drawCross(k); this.live.textContent = this.keyLabel(k); return; }
+        if (!list.length) {
+            this.drawCross(k);
+            this.live.textContent = this.keyLabel(k) + (this.eventsOn() && m.events[k] ? ". " + m.eventsField.name + ": " + m.events[k] : "");
+            return;
+        }
         this.focusSeries = Math.max(0, Math.min(this.focusSeries, list.length - 1));
         const d = list[this.focusSeries];
         const idx = this.drawn.indexOf(d);
@@ -1751,7 +2073,10 @@ export class Visual implements IVisual {
         const x = this.x(m.keys[k].pos), y = d.y(v);
         this.showTip(k, d.s, x, y);
         const panel = this.multi ? (m.smShown || this.t("UI_Blank", "(Blank)")) + ", " : "";
-        this.live.textContent = panel + d.s.name + ", " + this.keyLabel(k) + ": " + this.fmtFull(v, d.s.formats[k] ?? d.s.format);
+        let extra = "";
+        if (this.eventsOn() && m.events[k]) extra += ". " + m.eventsField.name + ": " + m.events[k];
+        if (this.notesOn() && d.s.notes?.[k]) extra += ". " + m.notesField.name + ": " + d.s.notes[k];
+        this.live.textContent = panel + d.s.name + ", " + this.keyLabel(k) + ": " + this.fmtFull(v, d.s.formats[k] ?? d.s.format) + extra;
     }
 
     private onKey(e: KeyboardEvent): void {
@@ -1999,15 +2324,23 @@ export class Visual implements IVisual {
             const estilo = PRO_STYLES.indexOf(String(objs.style?.template ?? "")) >= 0;
             const banda = objs.references?.gapShading === true;
             const desvio = ["pct", "abs"].indexOf(String(objs.endLabels?.variance ?? "off")) >= 0;
-            const pruebas: [string, string, boolean, boolean, () => void][] = [
+            const needRef = this.t("Guide_NeedsRef", "add Plan or Prior year first");
+            const evOn = has("events") && objs.events?.show !== false;
+            const anOn = has("annotations") && objs.annotations?.show !== false;
+            const pruebas: [string, string, boolean, boolean, () => void, string][] = [
                 [this.t("Guide_TryStyles", "Collection styles"), this.t("Guide_TryStylesWhy", "six looks shared with KPI Card, Pareto and the rest of TCViz"),
-                    estilo, true, () => this.persistir("style", { template: estilo ? "report" : "boardroom" })],
+                    estilo, true, () => this.persistir("style", { template: estilo ? "report" : "boardroom" }), ""],
                 [this.t("Guide_TryGap", "Gap shading"), this.t("Guide_TryGapWhy", "green above the plan, red below, split exactly where the lines cross"),
-                    banda, hasRef, () => this.persistir("references", banda ? { gapShading: false } : { gapShading: true, show: true })],
+                    banda, hasRef, () => this.persistir("references", banda ? { gapShading: false } : { gapShading: true, show: true }), needRef],
                 [this.t("Guide_TryVariance", "Variance on the end label"), this.t("Guide_TryVarianceWhy", "the last value and how far it is from plan: −9.1% vs plan"),
-                    desvio, hasRef, () => this.persistir("endLabels", desvio ? { variance: "off" } : { variance: "pct", show: true })],
+                    desvio, hasRef, () => this.persistir("endLabels", desvio ? { variance: "off" } : { variance: "pct", show: true }), needRef],
+                // Eventos y anotaciones se piden poniendo el campo: el botón solo enciende o apaga su tarjeta.
+                [this.t("Guide_TryEvents", "Events"), this.t("Guide_TryEventsWhy", "a vertical line with its text wherever your Events field is not blank"),
+                    evOn, has("events"), () => this.persistir("events", { show: !evOn }), this.t("Guide_NeedsEvents", "drag a text field into Events first")],
+                [this.t("Guide_TryNotes", "Annotations"), this.t("Guide_TryNotesWhy", "a note on the line wherever your Annotations field is not blank"),
+                    anOn, has("annotations"), () => this.persistir("annotations", { show: !anOn }), this.t("Guide_NeedsNotes", "drag a text field into Annotations first")],
             ];
-            for (const [nombre, porque, activa, posible, accion] of pruebas) {
+            for (const [nombre, porque, activa, posible, accion, falta] of pruebas) {
                 const f = mk("div", "lc-g-try");
                 const txt = mk("span", "");
                 txt.appendChild(mk("b", "", nombre));
@@ -2016,7 +2349,7 @@ export class Visual implements IVisual {
                     if (hc) { chip.style.background = "transparent"; chip.style.border = "1px solid " + fg; chip.style.color = fg; }
                     txt.appendChild(chip);
                 }
-                txt.appendChild(document.createTextNode(" — " + (posible ? porque : this.t("Guide_NeedsRef", "add Plan or Prior year first"))));
+                txt.appendChild(document.createTextNode(" — " + (posible ? porque : falta)));
                 txt.style.color = posible ? fg : muted;
                 const b = boton(activa ? this.t("Guide_On", "On") : this.t("Guide_Try", "Try"), activa, accion);
                 b.setAttribute("aria-pressed", String(activa));
@@ -2150,6 +2483,8 @@ export class Visual implements IVisual {
                     groups.push({ uid: "lines-dataColors-group", displayName: this.t("Grp_dataColors", "Colors"), slices: colors } as any);
                     colors.forEach((sl: any) => revert.push(sl.control.properties.descriptor));
                 }
+                const stroke = this.strokeGroup(revert);
+                if (stroke) groups.push(stroke);
             }
             const card: any = { uid: c.uid + "-card", displayName: this.t(c.key, c.label), groups, revertToDefaultDescriptors: revert };
             if (cardToggle) card.topLevelToggle = cardToggle;
@@ -2164,18 +2499,16 @@ export class Visual implements IVisual {
      * medida de ese valor; las demás medidas siguen el automático. Límite: no hay color por medida × leyenda, porque los
      * values van sin group (el mapeo validado) y no existe una identidad para esa combinación.
      */
-    private colorSlices(): powerbi.visuals.FormattingSlice[] {
+    /** Una entrada por serie configurable: su nombre, el selector donde se guarda y la serie que pinta. */
+    private seriesEntries(): { uid: string; name: string; selector: any; ser: Series | undefined }[] {
         const m = this.models[0];
-        if (!m || this.hc) return [];
-        const colorOf = (pred: (s: Series) => boolean) => this.allSeries.find(pred)?.color ?? "#118DFF";
-        const out: any[] = [];
+        if (!m) return [];
+        const out: { uid: string; name: string; selector: any; ser: Series | undefined }[] = [];
         if (m.legendCol) {
             const firstMeasure = this.allSeries[0]?.measure;
             m.legendValues.slice(0, 40).forEach((lv, i) => {
                 const selector = (this.host.createSelectionIdBuilder().withCategory(m.legendCol, lv.row).createSelectionId() as any).getSelector?.();
-                out.push({ uid: "dataColors-legend-" + i, displayName: lv.name, control: { type: "ColorPicker", properties: {
-                    descriptor: { objectName: "dataColors", propertyName: "fill", selector },
-                    value: { value: colorOf(s => s.legend === lv.name && s.measure === firstMeasure) } } } });
+                out.push({ uid: "legend-" + i, name: lv.name, selector, ser: this.allSeries.find(s => s.legend === lv.name && s.measure === firstMeasure) });
             });
         } else {
             const seen = new Set<string>();
@@ -2183,12 +2516,46 @@ export class Visual implements IVisual {
                 const src = c.source;
                 if (!src || !(src.roles?.values || src.roles?.secondaryValues) || seen.has(src.queryName)) continue;
                 seen.add(src.queryName);
-                out.push({ uid: "dataColors-measure-" + seen.size, displayName: src.displayName, control: { type: "ColorPicker", properties: {
-                    descriptor: { objectName: "dataColors", propertyName: "fill", selector: { metadata: src.queryName } },
-                    value: { value: colorOf(s => s.measure === src.displayName) } } } });
+                out.push({ uid: "measure-" + seen.size, name: src.displayName, selector: { metadata: src.queryName },
+                    ser: this.allSeries.find(s => s.measure === src.displayName) });
             }
         }
-        return out as powerbi.visuals.FormattingSlice[];
+        return out;
+    }
+
+    private colorSlices(): powerbi.visuals.FormattingSlice[] {
+        if (this.hc) return [];
+        return this.seriesEntries().map(e => ({ uid: "dataColors-" + e.uid, displayName: e.name, control: { type: "ColorPicker", properties: {
+            descriptor: { objectName: "dataColors", propertyName: "fill", selector: e.selector },
+            value: { value: e.ser?.color ?? "#118DFF" } } } })) as any;
+    }
+
+    /**
+     * Trazo por serie (gratis): estilo, grosor y marcadores, con el MISMO selector que el color (misma limitación con
+     * leyenda: se guarda por valor de leyenda y pinta la serie de la primera medida). Contenedor con selector de serie,
+     * como el "Aplicar a la serie" del nativo, para no listar 3 × N controles.
+     */
+    private strokeGroup(revert: powerbi.visuals.FormattingDescriptor[]): any | null {
+        const entries = this.seriesEntries();
+        if (!entries.length) return null;
+        const spec = OBJECTS.dataColors;
+        const lw = Number(this.settings.lines.width);
+        const items = entries.map(e => {
+            const cs = e.ser?.customStroke;
+            const cur: Record<string, any> = { lineStyle: cs?.style ?? "solid", lineWidth: cs?.width ?? lw, markers: cs?.markers ?? "auto" };
+            const slices = spec.props.filter(p => p.name !== "fill").map(p => {
+                const sl: any = this.slice("dataColors", p);
+                sl.uid = "dataColors-" + p.name + "-" + e.uid;
+                sl.control.properties.descriptor = { objectName: "dataColors", propertyName: p.name, selector: e.selector };
+                if (p.type === "enum") sl.control.properties.value = sl.control.properties.items.find((it: any) => it.value === cur[p.name]) ?? sl.control.properties.items[0];
+                else sl.control.properties.value = Number(cur[p.name]);
+                revert.push(sl.control.properties.descriptor);
+                return sl;
+            });
+            return { displayName: e.name, slices };
+        });
+        return { uid: "lines-seriesStroke-group", displayName: this.t("Grp_seriesStroke", "Line style by series"),
+            container: { displayName: this.t("UI_Series", "Series"), containerItems: items } };
     }
 
     // ── Formato desde el lienzo (on-object) ──────────────────────────────────
@@ -2222,6 +2589,10 @@ export class Visual implements IVisual {
         marcar(".lc-y", "yAxis", 1);
         marcar(".lc-y2", "y2Axis", 1);
         marcar(".lc-legend", "legend", 1);
+        marcar(".lc-target-line, .lc-target-label", "targetLine", 3);
+        marcar(".lc-event, .lc-event-labels", "events", 3);
+        marcar(".lc-note", "annotations", 1);
+        marcar(".lc-source", "sourceNote", 1);
     }
 
     private getSubSelectionStyles(subs: powerbi.visuals.CustomVisualSubSelection[]): powerbi.visuals.SubSelectionStyles | undefined {
@@ -2236,6 +2607,10 @@ export class Visual implements IVisual {
             case "y2Axis": return { type: 1, fontSize: ref("y2Axis", "fontSize") } as any;
             case "legend": return { type: 1, fontSize: ref("legend", "fontSize"), fontColor: ref("legend", "color") } as any;
             case "smallMultiples": return { type: 1, fontSize: ref("smallMultiples", "titleFontSize"), fontColor: ref("smallMultiples", "titleColor") } as any;
+            case "targetLine": return { type: 3, stroke: ref("targetLine", "color"), width: ref("targetLine", "width") } as any;
+            case "events": return { type: 3, stroke: ref("events", "color") } as any;
+            case "annotations": return { type: 1, fontSize: ref("annotations", "fontSize"), fontColor: ref("annotations", "color") } as any;
+            case "sourceNote": return { type: 1, fontSize: ref("sourceNote", "fontSize"), fontColor: ref("sourceNote", "color") } as any;
         }
         return undefined;
     }
@@ -2255,6 +2630,10 @@ export class Visual implements IVisual {
             case "smallMultiples": return [toggle("smallMultiples", "titleBold"), toggle("smallMultiples", "border"), toggle("smallMultiples", "sharedY"), div, reset("smallMultiples"), nav("smallMultiples", "smallMultiples")] as any;
             case "endLabels": return [toggle("endLabels", "show"), toggle("endLabels", "seriesColor"), div, reset("endLabels"), nav("endLabels", "endLabels")] as any;
             case "xAxis": case "yAxis": case "y2Axis": return [toggle(name, "show"), toggle(name, "title"), div, reset(name), nav(name, "axes")] as any;
+            case "targetLine": return [toggle("targetLine", "show"), toggle("targetLine", "showLabel"), div, reset("targetLine"), nav("targetLine", "targetLine")] as any;
+            case "events": return [toggle("events", "show"), toggle("events", "showLabels"), { type: 3, ...id("events", "labelPosition"), label: this.propLabel("events", "labelPosition") }, div, reset("events"), nav("events", "events")] as any;
+            case "annotations": return [toggle("annotations", "show"), div, reset("annotations"), nav("annotations", "annotations")] as any;
+            case "sourceNote": return [toggle("sourceNote", "show"), { type: 3, ...id("sourceNote", "align"), label: this.propLabel("sourceNote", "align") }, div, reset("sourceNote"), nav("sourceNote", "sourceNote")] as any;
             case "legend": return [{ type: 3, ...id("legend", "position"), label: this.propLabel("legend", "position") }, toggle("legend", "show"), div, reset("legend"), nav("legend", "legend")] as any;
         }
         return undefined;

@@ -57,7 +57,26 @@ export interface Series {
     customColor: string | null;
     /** Cadencia propia (mediana de distancias entre sus puntos con valor), en unidades de pos. */
     cadence: number;
+    /** Trazo elegido en el panel (dataColors.lineStyle/lineWidth/markers), con el mismo selector que el color. */
+    customStroke: SeriesStroke;
+    /** Anotaciones (texto por clave del eje), solo en las series de la primera medida; null en las demás. */
+    notes: (string | null)[] | null;
 }
+
+export interface SeriesStroke { style: string | null; width: number | null; markers: string | null; }
+
+/** Línea de objetivo de un panel: un valor por clave del eje (deduplicado entre las marcas de la leyenda). */
+export interface TargetLine {
+    name: string;
+    format: string | undefined;
+    values: (number | null)[];
+    formats: (string | undefined)[];
+    /** Todos los valores no vacíos son iguales: línea horizontal en todo el ancho. */
+    constant: boolean;
+}
+
+/** Un campo de texto (eventos o anotaciones): nombre y cuántos valores llegaron sin ser texto (Count, Sum...). */
+export interface TextField { name: string; nonText: number; }
 
 export interface TooltipColumn { name: string; format: string | undefined; values: PrimitiveValue[]; }
 
@@ -86,6 +105,11 @@ export interface Model {
     legendValues: { name: string; row: number }[];
     hasHighlights: boolean;
     rowCount: number;
+    target: TargetLine | null;
+    /** Texto del evento por clave del eje (deduplicado entre las marcas de la leyenda); null sin campo Events. */
+    events: (string | null)[] | null;
+    eventsField: TextField | null;
+    notesField: TextField | null;
 }
 
 const hasRole = (s: DataViewMetadataColumn | undefined, r: string): boolean => !!(s && s.roles && s.roles[r]);
@@ -124,6 +148,29 @@ export function cadenceOf(pos: number[]): number {
     for (let i = 1; i < pos.length; i++) { const x = pos[i] - pos[i - 1]; if (x > 0) d.push(x); }
     return median(d);
 }
+
+/**
+ * Texto de un evento o anotación: solo cadenas con algo más que espacios (null = sin evento). Un valor que no es texto
+ * (el campo quedó en Count o Sum) devuelve undefined: no se pinta y se avisa al autor.
+ */
+export function textOf(v: PrimitiveValue): string | null | undefined {
+    if (v === null || v === undefined) return null;
+    if (typeof v !== "string") return undefined;
+    const t = v.trim();
+    return t ? t : null;
+}
+
+const strokeOf = (o: unknown): SeriesStroke => {
+    const d = (o as any)?.dataColors;
+    const st = d?.lineStyle, mk = d?.markers;
+    const w = Number(d?.lineWidth);
+    return {
+        style: typeof st === "string" && st ? st : null,
+        width: d?.lineWidth !== undefined && d?.lineWidth !== null && isFinite(w) ? Math.max(0.5, Math.min(8, w)) : null,
+        markers: typeof mk === "string" && mk ? mk : null,
+    };
+};
+const NO_STROKE: SeriesStroke = { style: null, width: null, markers: null };
 
 const colorOf = (o: unknown): string | null => {
     const c = (o as any)?.dataColors?.fill?.solid?.color;
@@ -175,7 +222,8 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string): Mo
     const rowKey: number[] = new Array(N).fill(-1);
     const rowLeg: number[] = new Array(N).fill(-1);
     let missingAxis = 0;
-    const anyValue = (r: number) => cols.some(c => !hasRole(c.source, "tooltips") && toNum(c.values[r]) !== null);
+    const anyValue = (r: number) => cols.some(c => !hasRole(c.source, "tooltips") && !hasRole(c.source, "events") &&
+        !hasRole(c.source, "annotations") && toNum(c.values[r]) !== null);
 
     const legendFirstRow: number[] = [];
     for (let r = 0; r < N; r++) {
@@ -236,12 +284,23 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string): Mo
         for (let r = 0; r < N; r++) if (rowLeg[r] === li) { const c = colorOf(legendCol.objects[r]); if (c) return c; }
         return null;
     };
+    const legendStroke = (li: number): SeriesStroke => {
+        if (!legendCol || !legendCol.objects) return NO_STROKE;
+        for (let r = 0; r < N; r++) if (rowLeg[r] === li && legendCol.objects[r]) {
+            const st = strokeOf(legendCol.objects[r]);
+            if (st.style || st.width !== null || st.markers) return st;
+        }
+        return NO_STROKE;
+    };
     for (const col of ordered) {
         const role = hasRole(col.source, "values") ? "values" : "secondaryValues";
         // Sin leyenda, el color se guarda por medida (selector metadata); con leyenda, por valor de leyenda y solo para
         // la primera medida (las demás siguen el automático: dos medidas de la misma marca no deben confundirse).
         const meta = metaCols.find(c => c.queryName === col.source.queryName) ?? col.source;
         const measureColor = legendCol ? null : (colorOf(col.source.objects) ?? colorOf(meta.objects));
+        const sa = strokeOf(col.source.objects), sb = strokeOf(meta.objects);
+        const measureStroke: SeriesStroke = legendCol ? NO_STROKE
+            : { style: sa.style ?? sb.style, width: sa.width ?? sb.width, markers: sa.markers ?? sb.markers };
         for (let li = 0; li < legends.length; li++) {
             const values: (number | null)[] = new Array(K).fill(null);
             const formats: (string | undefined)[] = new Array(K).fill(undefined);
@@ -271,6 +330,8 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string): Mo
                 format: col.source.format, values, formats, highlights: hl, rows, refs: [], lastIndex: last, color: "",
                 customColor: legendCol ? (col === ordered[0] ? legendColor(li) : null) : measureColor,
                 cadence: cadenceOf(own) || cadence,
+                customStroke: legendCol ? (col === ordered[0] ? legendStroke(li) : NO_STROKE) : measureStroke,
+                notes: null,
             });
         }
     }
@@ -301,6 +362,61 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string): Mo
         if (used) refKinds.push(kind);
     }
 
+    // Línea de objetivo: un valor por clave del eje en este panel; con leyenda la medida se repite por marca, así que
+    // vale el primer valor no vacío de cada clave.
+    let target: TargetLine | null = null;
+    const tcol = cols.find(c => hasRole(c.source, "targetLine"));
+    if (tcol) {
+        const values: (number | null)[] = new Array(K).fill(null);
+        const formats: (string | undefined)[] = new Array(K).fill(undefined);
+        for (let r = 0; r < N; r++) {
+            const k = rowKey[r];
+            if (k < 0 || !inPanel(r) || values[k] !== null) continue;
+            const v = toNum(tcol.values[r]);
+            if (v === null) continue;
+            values[k] = v; formats[k] = fmtOfPoint(tcol, r);
+        }
+        const nn = values.filter((v): v is number => v !== null);
+        if (nn.length) target = { name: tcol.source.displayName, format: tcol.source.format, values, formats, constant: nn.every(v => v === nn[0]) };
+    }
+
+    // Eventos: texto por clave del eje (el primero no vacío de la clave en este panel).
+    let events: (string | null)[] | null = null;
+    let eventsField: TextField | null = null;
+    const ecol = cols.find(c => hasRole(c.source, "events"));
+    if (ecol) {
+        const ev: (string | null)[] = new Array(K).fill(null);
+        const fld: TextField = { name: ecol.source.displayName, nonText: 0 };
+        for (let r = 0; r < N; r++) {
+            const k = rowKey[r];
+            if (k < 0 || !inPanel(r)) continue;
+            const t = textOf(ecol.values[r]);
+            if (t === undefined) { fld.nonText++; continue; }
+            if (t !== null && ev[k] === null) ev[k] = t;
+        }
+        events = ev; eventsField = fld;
+    }
+
+    // Anotaciones: por marca de leyenda (la medida se evalúa por marca), en las series de la primera medida.
+    let notesField: TextField | null = null;
+    const acol = cols.find(c => hasRole(c.source, "annotations"));
+    if (acol) {
+        const fld: TextField = { name: acol.source.displayName, nonText: 0 };
+        const fq = firstMeasure.source.queryName || firstMeasure.source.displayName;
+        for (const s of series) {
+            if (s.id.split("␟")[0] !== fq) continue;
+            const notes: (string | null)[] = new Array(K).fill(null);
+            for (let r = 0; r < N; r++) {
+                if (rowLeg[r] !== s.legendIndex || rowKey[r] < 0 || !inPanel(r)) continue;
+                const t = textOf(acol.values[r]);
+                if (t === undefined) { fld.nonText++; continue; }
+                if (t !== null && notes[rowKey[r]] === null) notes[rowKey[r]] = t;
+            }
+            s.notes = notes;
+        }
+        notesField = fld;
+    }
+
     const tooltipCols: TooltipColumn[] = cols.filter(c => hasRole(c.source, "tooltips"))
         .map(c => ({ name: c.source.displayName, format: c.source.format, values: c.values }));
 
@@ -315,6 +431,7 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string): Mo
         smPanels: smVals.length, smShown: smFirst,
         legendValues: legendCol ? legends.map((l, i) => ({ name: legendName(i) ?? l, row: legendFirstRow[i] })) : [],
         hasHighlights, rowCount: N,
+        target, events, eventsField, notesField,
     };
 }
 

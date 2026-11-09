@@ -325,6 +325,202 @@ export const OBJECTS: Record<string, ObjSpec> = {
             }
         ]
     },
+    "targetLine": {
+        "name": "targetLine",
+        "key": "Obj_targetLine",
+        "label": "Target line",
+        "props": [
+            {
+                "name": "show",
+                "type": "bool",
+                "def": true,
+                "key": "Prop_targetLine_show",
+                "label": "Show target line"
+            },
+            {
+                "name": "color",
+                "type": "fill",
+                "def": "",
+                "key": "Prop_targetLine_color",
+                "label": "Line color"
+            },
+            {
+                "name": "width",
+                "type": "num",
+                "def": 1.5,
+                "key": "Prop_targetLine_width",
+                "label": "Line width",
+                "min": 0.5,
+                "max": 6
+            },
+            {
+                "name": "lineStyle",
+                "type": "enum",
+                "def": "dashed",
+                "key": "Prop_targetLine_lineStyle",
+                "label": "Line style",
+                "items": [
+                    [
+                        "solid",
+                        "Enum_lineStyle_solid",
+                        "Solid"
+                    ],
+                    [
+                        "dashed",
+                        "Enum_lineStyle_dashed",
+                        "Dashed"
+                    ],
+                    [
+                        "dotted",
+                        "Enum_lineStyle_dotted",
+                        "Dotted"
+                    ]
+                ]
+            },
+            {
+                "name": "showLabel",
+                "type": "bool",
+                "def": true,
+                "key": "Prop_targetLine_showLabel",
+                "label": "Show label"
+            },
+            {
+                "name": "fontSize",
+                "type": "num",
+                "def": 10,
+                "key": "Prop_targetLine_fontSize",
+                "label": "Text size",
+                "min": 7,
+                "max": 24
+            }
+        ]
+    },
+    "events": {
+        "name": "events",
+        "key": "Obj_events",
+        "label": "Events (Pro)",
+        "props": [
+            {
+                "name": "show",
+                "type": "bool",
+                "def": true,
+                "key": "Prop_events_show",
+                "label": "Show events"
+            },
+            {
+                "name": "color",
+                "type": "fill",
+                "def": "",
+                "key": "Prop_events_color",
+                "label": "Line color"
+            },
+            {
+                "name": "lineStyle",
+                "type": "enum",
+                "def": "dashed",
+                "key": "Prop_events_lineStyle",
+                "label": "Line style",
+                "items": [
+                    [
+                        "solid",
+                        "Enum_lineStyle_solid",
+                        "Solid"
+                    ],
+                    [
+                        "dashed",
+                        "Enum_lineStyle_dashed",
+                        "Dashed"
+                    ],
+                    [
+                        "dotted",
+                        "Enum_lineStyle_dotted",
+                        "Dotted"
+                    ]
+                ]
+            },
+            {
+                "name": "showLabels",
+                "type": "bool",
+                "def": true,
+                "key": "Prop_events_showLabels",
+                "label": "Show labels"
+            },
+            {
+                "name": "labelPosition",
+                "type": "enum",
+                "def": "top",
+                "key": "Prop_events_labelPosition",
+                "label": "Label position",
+                "items": [
+                    [
+                        "top",
+                        "Enum_labelPosition_top",
+                        "Top"
+                    ],
+                    [
+                        "bottom",
+                        "Enum_labelPosition_bottom",
+                        "Bottom"
+                    ]
+                ]
+            },
+            {
+                "name": "fontSize",
+                "type": "num",
+                "def": 9,
+                "key": "Prop_events_fontSize",
+                "label": "Text size",
+                "min": 7,
+                "max": 18
+            }
+        ]
+    },
+    "annotations": {
+        "name": "annotations",
+        "key": "Obj_annotations",
+        "label": "Annotations (Pro)",
+        "props": [
+            {
+                "name": "show",
+                "type": "bool",
+                "def": true,
+                "key": "Prop_annotations_show",
+                "label": "Show annotations"
+            },
+            {
+                "name": "fontSize",
+                "type": "num",
+                "def": 9,
+                "key": "Prop_annotations_fontSize",
+                "label": "Text size",
+                "min": 7,
+                "max": 18
+            },
+            {
+                "name": "color",
+                "type": "fill",
+                "def": "",
+                "key": "Prop_annotations_color",
+                "label": "Text color"
+            },
+            {
+                "name": "background",
+                "type": "fill",
+                "def": "",
+                "key": "Prop_annotations_background",
+                "label": "Background"
+            },
+            {
+                "name": "opacity",
+                "type": "num",
+                "def": 85,
+                "key": "Prop_annotations_opacity",
+                "label": "Background opacity (%)",
+                "min": 0,
+                "max": 100
+            }
+        ]
+    },
     "xAxis": {
         "name": "xAxis",
         "key": "Obj_xAxis",
@@ -612,6 +808,124 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "def": "",
                 "key": "Prop_dataColors_fill",
                 "label": "Color"
+            },
+            {
+                "name": "lineStyle",
+                "type": "enum",
+                "def": "solid",
+                "key": "Prop_dataColors_lineStyle",
+                "label": "Line style",
+                "items": [
+                    [
+                        "solid",
+                        "Enum_lineStyle_solid",
+                        "Solid"
+                    ],
+                    [
+                        "dashed",
+                        "Enum_lineStyle_dashed",
+                        "Dashed"
+                    ],
+                    [
+                        "dotted",
+                        "Enum_lineStyle_dotted",
+                        "Dotted"
+                    ]
+                ]
+            },
+            {
+                "name": "lineWidth",
+                "type": "num",
+                "def": 2,
+                "key": "Prop_dataColors_lineWidth",
+                "label": "Line width",
+                "min": 0.5,
+                "max": 8
+            },
+            {
+                "name": "markers",
+                "type": "enum",
+                "def": "auto",
+                "key": "Prop_dataColors_markers",
+                "label": "Markers",
+                "items": [
+                    [
+                        "auto",
+                        "Enum_markers_auto",
+                        "Automatic"
+                    ],
+                    [
+                        "on",
+                        "Enum_markers_on",
+                        "On"
+                    ],
+                    [
+                        "off",
+                        "Enum_markers_off",
+                        "Off"
+                    ]
+                ]
+            }
+        ]
+    },
+    "sourceNote": {
+        "name": "sourceNote",
+        "key": "Obj_sourceNote",
+        "label": "Source note",
+        "props": [
+            {
+                "name": "show",
+                "type": "bool",
+                "def": false,
+                "key": "Prop_sourceNote_show",
+                "label": "Show source note"
+            },
+            {
+                "name": "text",
+                "type": "text",
+                "def": "",
+                "key": "Prop_sourceNote_text",
+                "label": "Text"
+            },
+            {
+                "name": "fontSize",
+                "type": "num",
+                "def": 9,
+                "key": "Prop_sourceNote_fontSize",
+                "label": "Text size",
+                "min": 7,
+                "max": 16
+            },
+            {
+                "name": "color",
+                "type": "fill",
+                "def": "",
+                "key": "Prop_sourceNote_color",
+                "label": "Text color"
+            },
+            {
+                "name": "align",
+                "type": "enum",
+                "def": "left",
+                "key": "Prop_sourceNote_align",
+                "label": "Alignment",
+                "items": [
+                    [
+                        "left",
+                        "Enum_align_left",
+                        "Left"
+                    ],
+                    [
+                        "center",
+                        "Enum_align_center",
+                        "Center"
+                    ],
+                    [
+                        "right",
+                        "Enum_align_right",
+                        "Right"
+                    ]
+                ]
             }
         ]
     }
@@ -651,12 +965,45 @@ export const PANE: CardSpec[] = [
         ]
     },
     {
+        "uid": "events",
+        "key": "Obj_events",
+        "label": "Events (Pro)",
+        "groups": [
+            {
+                "obj": "events",
+                "toggle": "show"
+            }
+        ]
+    },
+    {
+        "uid": "annotations",
+        "key": "Obj_annotations",
+        "label": "Annotations (Pro)",
+        "groups": [
+            {
+                "obj": "annotations",
+                "toggle": "show"
+            }
+        ]
+    },
+    {
         "uid": "references",
         "key": "Obj_references",
         "label": "Plan, prior year and forecast",
         "groups": [
             {
                 "obj": "references",
+                "toggle": "show"
+            }
+        ]
+    },
+    {
+        "uid": "targetLine",
+        "key": "Obj_targetLine",
+        "label": "Target line",
+        "groups": [
+            {
+                "obj": "targetLine",
                 "toggle": "show"
             }
         ]
@@ -705,6 +1052,17 @@ export const PANE: CardSpec[] = [
             {
                 "obj": "smallMultiples",
                 "toggle": null
+            }
+        ]
+    },
+    {
+        "uid": "sourceNote",
+        "key": "Obj_sourceNote",
+        "label": "Source note",
+        "groups": [
+            {
+                "obj": "sourceNote",
+                "toggle": "show"
             }
         ]
     }
