@@ -1,10 +1,13 @@
 /*
- * Line Chart by TCViz — bloque 1 (la parte gratuita).
+ * Line Chart by TCViz.
  *
- * Eje de fechas continuo (o categórico con texto, número o nivel de jerarquía), huecos honestos (Break / Connect /
- * Zero; vacío ≠ cero), varias medidas y leyenda con eje secundario, Plan / Prior year / Forecast como líneas grises,
- * etiquetas al final con el último valor no vacío, tooltip con cruceta, resaltado, selección, teclado, alto contraste,
- * mosaico pequeño, landing de la serie, asistente y formato desde el lienzo.
+ * Gratis (bloque 1): eje de fechas continuo (o categórico con texto, número o nivel de jerarquía), huecos honestos
+ * (Break / Connect / Zero; vacío ≠ cero), varias medidas y leyenda con eje secundario, Plan / Prior year / Forecast
+ * como líneas grises, etiquetas al final con el último valor no vacío, color por serie, tooltip con cruceta, resaltado,
+ * selección, teclado, alto contraste, mosaico pequeño, landing de la serie, asistente y formato desde el lienzo.
+ *
+ * Pro (bloque 2), con vista previa por función solo editando y bajo marca de agua: los seis estilos de la colección,
+ * la banda real-vs-referencia partida en el cruce, el desvío en la etiqueta final y small multiples.
  *
  * Reglas de la cartera que se cumplen aquí:
  *  - renderingStarted / Finished|Failed 1:1 por update(): los repintados internos (licencia, hover, selección,
@@ -28,7 +31,7 @@ import "./../style/visual.less";
 
 import { STRINGS } from "./strings";
 import { OBJECTS, PANE, PropSpec } from "./formatSpec";
-import { buildModel, cadenceOf, Model, Series, RefKind, segmentsOf, Pt } from "./model";
+import { buildModel, cadenceOf, Model, Series, RefKind, RefLine, segmentsOf, Pt, panelValues, gapBands } from "./model";
 
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
@@ -48,9 +51,9 @@ type Settings = Record<string, Record<string, any>>;
 const TEST_STAMP = ""; // TEST_STAMP_MARKER
 
 /**
- * Plan previsto en Partner Center (serie económica, como Radar: 0,99/mes · 9,99/año). El bloque 1 no tiene funciones
- * Pro activas: la licencia ya se resuelve para que el bloque 2 (estilos, banda real-vs-referencia, Δ, small multiples)
- * solo tenga que leer isPro. El Plan ID DEBE ser el que se escriba al crear el plan.
+ * Plan previsto en Partner Center (serie económica, como Radar: 0,99/mes · 9,99/año). Funciones Pro: estilos de la
+ * colección, banda real-vs-referencia, desvío en la etiqueta final y small multiples. El Plan ID DEBE ser el que se
+ * escriba al crear el plan.
  */
 const PLAN_IDS = ["line-chart-pro"];
 const STATE_ACTIVE = 1;
@@ -70,6 +73,7 @@ const CLASSIC = ["#118DFF", "#12239E", "#E66C37", "#6B007B", "#E044A7", "#744EC2
 /** Alto contraste: las series se distinguen por trazo y marcador, no por color. */
 const HC_DASH = ["", "10,4", "16,4,4,4", "5,5", "20,5", "12,3,3,3,3,3", "8,8", "24,4,8,4"];
 const HC_SYMBOLS = [d3.symbolCircle, d3.symbolSquare, d3.symbolTriangle, d3.symbolDiamond, d3.symbolCross, d3.symbolStar, d3.symbolWye];
+const REF_KINDS_ORDER: RefKind[] = ["plan", "previousYear", "forecast"];
 const REF_DASH: Record<RefKind, string> = { plan: "6,3", previousYear: "2,3", forecast: "8,3,2,3" };
 const REF_DEFAULT_NAME: Record<RefKind, [string, string]> = {
     plan: ["Role_Plan", "Plan"], previousYear: ["Role_PreviousYear", "Prior year"], forecast: ["Role_Forecast", "Forecast"],
@@ -82,22 +86,32 @@ const REF_DEFAULT_NAME: Record<RefKind, [string, string]> = {
 const TEMPLATES: Record<string, Settings> = {
     report: {},
     classic: { xAxis: { color: "#605E5C" }, yAxis: { color: "#605E5C", gridColor: "#E1DFDD" }, legend: { color: "#605E5C" },
-        endLabels: { color: "#252423" }, references: { color: "#8A8886" } },
+        endLabels: { color: "#252423" }, references: { color: "#8A8886", aboveColor: "#2E7D32", belowColor: "#C62828" },
+        smallMultiples: { titleColor: "#252423", borderColor: "#E1DFDD" } },
 };
 
 /**
- * Los seis estilos de la colección (bloque 2, Pro con vista previa). Tokens compartidos con KPI Card:
- * trend.color = la serie real (series[0]), targetColor = el plan. Preparados, aún no se aplican.
+ * Los seis estilos de la colección (Pro, con vista previa). Tokens compartidos con KPI Card: trend.color = la serie
+ * real (series[0]), targetColor = el plan; up/down = los de la comparación de Pareto en el mismo estilo. Así una página
+ * con KPI Card, Pareto y Line Chart en Boardroom se ve como un solo informe.
  */
 const PRO_STYLES = ["boardroom", "ledger", "editorial", "signal", "aurora", "terrace"];
-export const STYLE_TOKENS: Record<string, { bg: string; text: string; axis: string; grid: string; plan: string; series: string[]; font?: string; grad?: string }> = {
-    boardroom: { bg: "#16263D", text: "#F2F0E8", axis: "#9FB0C6", grid: "#2A3E5C", plan: "#6FCF97", series: ["#C9A45C", "#8FB8E8", "#EB8A7B", "#6FCF97", "#C5D3E3"] },
-    ledger: { bg: "#FBF8EF", text: "#231F16", axis: "#6E6652", grid: "#D9D2BE", plan: "#946A10", series: ["#7A1F1F", "#3A3528", "#2F6B3B", "#946A10", "#B7AD92"], font: "Georgia, serif" },
-    editorial: { bg: "#FFFFFF", text: "#111111", axis: "#5F5F5F", grid: "#E2E2E2", plan: "#111111", series: ["#D7263D", "#111111", "#5F5F5F", "#BDBDBD", "#8C1C2B"], font: "Georgia, serif" },
-    signal: { bg: "#FFFFFF", text: "#14202B", axis: "#566472", grid: "#D9DEE4", plan: "#B7791F", series: ["#1F7A4D", "#14202B", "#B7791F", "#C0392B", "#9AA5B1"] },
-    aurora: { bg: "#10395E", text: "#FFFFFF", axis: "#C5D3E3", grid: "#3A5C7E", plan: "#FFD27D", series: ["#7CE7D0", "#FFD27D", "#FF9DB0", "#9DB7FF", "#C5D3E3"], grad: "linear-gradient(135deg, #1B1147, #10395E 50%, #0B5A5E)" },
-    terrace: { bg: "#FBF5EC", text: "#3A2A1E", axis: "#7A6450", grid: "#E5D6C2", plan: "#5E7128", series: ["#B5532A", "#5E7128", "#B5782A", "#B5372A", "#C9A77E"] },
+interface StyleTokens { bg: string; text: string; axis: string; grid: string; plan: string; up: string; down: string; series: string[]; font?: string; grad?: string; }
+export const STYLE_TOKENS: Record<string, StyleTokens> = {
+    boardroom: { bg: "#16263D", text: "#F2F0E8", axis: "#9FB0C6", grid: "#2A3E5C", plan: "#6FCF97", up: "#6FCF97", down: "#EB8A7B", series: ["#C9A45C", "#8FB8E8", "#EB8A7B", "#6FCF97", "#C5D3E3"] },
+    ledger: { bg: "#FBF8EF", text: "#231F16", axis: "#6E6652", grid: "#D9D2BE", plan: "#946A10", up: "#2F6B3B", down: "#A32A2A", series: ["#7A1F1F", "#3A3528", "#2F6B3B", "#946A10", "#B7AD92"], font: "Georgia, serif" },
+    editorial: { bg: "#FFFFFF", text: "#111111", axis: "#5F5F5F", grid: "#E2E2E2", plan: "#111111", up: "#111111", down: "#D7263D", series: ["#D7263D", "#111111", "#5F5F5F", "#BDBDBD", "#8C1C2B"], font: "Georgia, serif" },
+    signal: { bg: "#FFFFFF", text: "#14202B", axis: "#566472", grid: "#D9DEE4", plan: "#B7791F", up: "#1F7A4D", down: "#C0392B", series: ["#1F7A4D", "#14202B", "#B7791F", "#C0392B", "#9AA5B1"] },
+    aurora: { bg: "#10395E", text: "#FFFFFF", axis: "#C5D3E3", grid: "#3A5C7E", plan: "#FFD27D", up: "#7CE7D0", down: "#FF9DB0", series: ["#7CE7D0", "#FFD27D", "#FF9DB0", "#9DB7FF", "#C5D3E3"], grad: "linear-gradient(135deg, #1B1147, #10395E 50%, #0B5A5E)" },
+    terrace: { bg: "#FBF5EC", text: "#3A2A1E", axis: "#7A6450", grid: "#E5D6C2", plan: "#5E7128", up: "#5E7128", down: "#B5372A", series: ["#B5532A", "#5E7128", "#B5782A", "#B5372A", "#C9A77E"] },
 };
+for (const k of PRO_STYLES) {
+    const t = STYLE_TOKENS[k];
+    TEMPLATES[k] = { xAxis: { color: t.axis }, yAxis: { color: t.axis, gridColor: t.grid }, legend: { color: t.axis },
+        endLabels: { color: t.text }, references: { color: t.axis, aboveColor: t.up, belowColor: t.down },
+        smallMultiples: { titleColor: t.axis, borderColor: t.grid } };
+}
+const FONT_DEFAULT = "'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif";
 
 /** "Report theme" (por defecto): los colores del tema del informe, como un visual nativo. */
 function reportTemplate(host: IVisualHost): Settings {
@@ -107,8 +121,12 @@ function reportTemplate(host: IVisualHost): Settings {
     const grid: string = pal?.backgroundNeutral?.value ?? "#E1DFDD";
     const ter: string = pal?.foregroundNeutralTertiary?.value ?? "#8A8886";
     return { xAxis: { color: soft }, yAxis: { color: soft, gridColor: grid }, legend: { color: soft },
-        endLabels: { color: fg }, references: { color: ter } };
+        endLabels: { color: fg }, references: { color: ter }, smallMultiples: { titleColor: fg, borderColor: grid } };
 }
+
+let hatchCounter = 0;
+/** Sin licencia, la vista previa de small multiples dibuja como mucho estos paneles. */
+const PREVIEW_PANELS = 4;
 
 interface Layout {
     mode: "full" | "mini" | "spark";
@@ -124,6 +142,13 @@ interface Layout {
 interface LegendItem { label: string; color: string; kind: "series" | "ref"; dash: string; series?: Series; ref?: RefKind; w: number; idx: number; }
 
 interface Drawn { s: Series; y: d3.ScaleLinear<number, number>; segs: Pt[][]; }
+
+/** Un panel dibujado (uno solo sin small multiples): su modelo, su caja y sus escalas, para el puntero y el teclado. */
+interface PanelState {
+    model: Model; g: Sel<SVGGElement>; ox: number; oy: number;
+    L: Layout | null; x: (pos: number) => number;
+    y1: d3.ScaleLinear<number, number> | null; y2: d3.ScaleLinear<number, number> | null; drawn: Drawn[];
+}
 
 export class Visual implements IVisual {
     private host: IVisualHost;
@@ -141,10 +166,33 @@ export class Visual implements IVisual {
     private licenseRequested = false;
     private licenseResolved = false;
     private licenseEnvUnsupported = false;
+    /**
+     * Funciones Pro dibujadas de verdad, bajo marca de agua, para que el autor vea lo que compraría. Solo editando y solo
+     * cuando la licencia ya se ha resuelto: si no, un cliente Pro vería la marca en el primer fotograma y un informe
+     * publicado llevaría una función sin pagar.
+     */
+    private proPreview = false;
+    private watermarkEl: HTMLDivElement;
+    private watermarkTitle: HTMLDivElement;
+    private watermarkWhy: HTMLDivElement;
+    private lastBlockedNotice = "";
+    private licenseIconShown = false;
+    private licenseIconTimer: number | null = null;
 
     private lastOptions: VisualUpdateOptions | null = null;
     private dataView: DataView | null = null;
+    /** Panel activo (el del puntero o el teclado): model, L, x, y1, y2 y drawn apuntan a él. */
     private model: Model | null = null;
+    private models: Model[] = [];
+    private panels: PanelState[] = [];
+    private curPanel: PanelState | null = null;
+    /** Se dibujan varios paneles (small multiples con licencia o en la vista previa). */
+    private multi = false;
+    /** Todas las series de todos los paneles, una por id: leyenda y colores. */
+    private allSeries: Series[] = [];
+    private canvas: Sel<SVGGElement>;
+    private sharedDomains: { d1: [number, number] | null; d2: [number, number] | null } | null = null;
+    private hatchId = "lc-hatch-" + (++hatchCounter);
     private settings: Settings = {};
     private tplVisto: string | null = null;
     private tplEfectiva = "report";
@@ -182,6 +230,17 @@ export class Visual implements IVisual {
         this.live.className = "lc-live";
         this.live.setAttribute("aria-live", "polite");
         this.root.appendChild(this.live);
+        this.canvas = this.svg.append("g") as unknown as Sel<SVGGElement>;
+        // Marca de la vista previa (como Pareto): texto blanco con sombra, dos líneas (el rótulo y QUÉ función la
+        // enciende), sin capturar clics y fuera del lector de pantalla.
+        this.watermarkEl = document.createElement("div");
+        this.watermarkEl.className = "lc-watermark";
+        this.watermarkEl.setAttribute("aria-hidden", "true");
+        this.watermarkTitle = document.createElement("div");
+        this.watermarkWhy = document.createElement("div");
+        this.watermarkEl.appendChild(this.watermarkTitle);
+        this.watermarkEl.appendChild(this.watermarkWhy);
+        this.root.appendChild(this.watermarkEl);
         this.injectStyles();
 
         this.subSelectionHelper = HtmlSubSelectionHelper.createHtmlSubselectionHelper({
@@ -289,7 +348,7 @@ export class Visual implements IVisual {
             try { this.canvasCtx = document.createElement("canvas").getContext("2d"); } catch { this.canvasCtx = null; }
         }
         if (!this.canvasCtx) return text.length * size * 0.56;
-        this.canvasCtx.font = (bold ? "600 " : "") + size + "px 'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif";
+        this.canvasCtx.font = (bold ? "600 " : "") + size + "px " + (this.look?.font ?? FONT_DEFAULT);
         return this.canvasCtx.measureText(text).width;
     }
 
@@ -325,10 +384,144 @@ export class Visual implements IVisual {
         return out;
     }
 
-    /** Bloque 1: los estilos Pro no se aplican todavía (bloque 2). Sin licencia, nunca. */
+    /** La plantilla que se dibuja: un estilo de la colección solo con Pro o en la vista previa; si no, Report theme. */
     private plantillaEfectiva(dv: DataView | null): string {
         const t = String((dv?.metadata?.objects as any)?.style?.template ?? "report");
-        return t === "classic" ? "classic" : "report";
+        if (!TEMPLATES[t]) return "report";
+        return PRO_STYLES.indexOf(t) < 0 || this.previewOf("style templates") ? t : "report";
+    }
+
+    /** Tokens del estilo de la colección que se dibuja (null con Report theme, Classic o alto contraste). */
+    private get look(): StyleTokens | null {
+        return !this.hc && PRO_STYLES.indexOf(this.tplEfectiva) >= 0 ? STYLE_TOKENS[this.tplEfectiva] : null;
+    }
+
+    /** Fondo sobre el que se dibuja: para los bordes de los marcadores, el anillo de selección y el contraste. */
+    private get bgColor(): string {
+        if (this.hc) return this.hcBg;
+        return this.look?.bg ?? (this.host.colorPalette as any)?.background?.value ?? "#FFFFFF";
+    }
+
+    /** Tinta principal (anillo de selección, títulos). */
+    private get ink(): string {
+        if (this.hc) return this.hcFg;
+        return this.look?.text ?? (this.host.colorPalette as any)?.foreground?.value ?? "#252423";
+    }
+
+    /** Fondo y fuente del estilo, en el contenedor del visual (Aurora con su degradado). */
+    private aplicarAspecto(): void {
+        const look = this.look;
+        this.root.style.background = this.hc ? this.hcBg : (look ? (look.grad ?? look.bg) : "");
+        this.root.style.fontFamily = look?.font ?? "";
+    }
+
+    /**
+     * Qué funciones Pro está PIDIENDO el informe ahora. Se lee de metadata.objects (solo lo que el informe guardó) y del
+     * valor ACTUAL de cada ajuste: volver al valor gratis quita la marca. Poner el campo Small multiples ES la petición.
+     * La banda y el desvío solo cuentan si hay Plan o Prior year: sin referencia no dibujan nada y la marca mentiría.
+     */
+    private attemptedProFeatures(): { labels: string[]; signature: string; touched: Set<string> } {
+        const dv = this.dataView;
+        const objs: any = dv?.metadata?.objects ?? {};
+        const cols = dv?.metadata?.columns ?? [];
+        const hasRef = cols.some(c => !!(c.roles?.plan || c.roles?.previousYear));
+        const hasSm = cols.some(c => !!c.roles?.smallMultiple);
+        const tpl = String(objs.style?.template ?? "");
+        const variance = String(objs.endLabels?.variance ?? "off");
+        const groups: [string, boolean, string][] = [
+            ["style templates", PRO_STYLES.indexOf(tpl) >= 0, "style=" + tpl],
+            ["gap shading", objs.references?.gapShading === true && objs.references?.show !== false && hasRef, "gap=" + (objs.references?.gapShading === true)],
+            ["variance label", (variance === "pct" || variance === "abs") && objs.endLabels?.show !== false && hasRef, "var=" + variance],
+            ["small multiples", hasSm, "sm=" + hasSm],
+        ];
+        const labels: string[] = [];
+        const parts: string[] = [];
+        const touched = new Set<string>();
+        for (const [label, activa, firma] of groups) {
+            if (!activa) continue;
+            labels.push(label); touched.add(label); parts.push(firma);
+        }
+        return { labels, signature: parts.join("|"), touched };
+    }
+
+    /** Lo que se DIBUJA, función a función: la vista previa solo vale para la función que el autor ha tocado. */
+    private previewOf(feature: string): boolean {
+        if (this.isPro) return true;
+        if (!this.proPreview) return false;
+        return this.attemptedProFeatures().touched.has(feature);
+    }
+
+    private featName(id: string): string {
+        switch (id) {
+            case "style templates": return this.t("Feat_styles", "collection styles");
+            case "gap shading": return this.t("Feat_gap", "gap shading");
+            case "variance label": return this.t("Feat_variance", "variance label");
+            case "small multiples": return this.t("Feat_panels", "small multiples");
+            default: return id;
+        }
+    }
+
+    /** La marca solo con una función Pro realmente puesta y solo editando: un gráfico gratis correcto no se ensucia. */
+    private updateWatermark(W: number, H: number): void {
+        const { labels } = this.attemptedProFeatures();
+        const activa = this.proPreview && labels.length > 0 && !!this.model;
+        this.watermarkEl.style.display = activa ? "flex" : "none";
+        if (!activa) return;
+        this.watermarkTitle.textContent = this.t("UI_ProPreview", "Pro preview");
+        const nombres = labels.map(l => this.featName(l));
+        this.watermarkWhy.textContent = (nombres.length <= 2 ? nombres : nombres.slice(0, 2).concat(["+" + (nombres.length - 2)])).join(" · ");
+        const size = Math.round(Math.max(22, Math.min(84, W / 8, H / 3.5)));
+        this.watermarkEl.style.fontSize = size + "px";
+        this.watermarkWhy.style.fontSize = Math.round(size * 0.34) + "px";
+    }
+
+    private cancelLicenseIcon(): void {
+        if (this.licenseIconTimer !== null) { window.clearTimeout(this.licenseIconTimer); this.licenseIconTimer = null; }
+    }
+
+    /** Quita el aviso: la licencia se resolvió o el autor quitó todas las funciones Pro. */
+    private clearLicenseNotice(): void {
+        this.lastBlockedNotice = "";
+        this.cancelLicenseIcon();
+        if (!this.licenseIconShown) return;
+        this.licenseIconShown = false;
+        try { (this.host.licenseManager as any)?.clearLicenseNotification?.(); } catch { /* best-effort */ }
+    }
+
+    /**
+     * Avisos de licencia del propio Power BI (Microsoft: el visual no muestra UX de licencia propia). Secuencia de Pareto
+     * 1.4.1+: quitar lo que haya, el aviso que nombra la función y, ~10 s después, la barra persistente de Upgrade (la
+     * que lleva a la compra; si fuera antes, el aviso la taparía). Solo ante un cambio NUEVO de un ajuste Pro.
+     */
+    private notifyProFeatureBlocked(): void {
+        const lm: any = this.host.licenseManager;
+        if (!lm || !this.licenseResolved) return;
+        if (this.isPro) { this.clearLicenseNotice(); return; }
+        const { labels, signature } = this.attemptedProFeatures();
+        if (!labels.length) { this.clearLicenseNotice(); return; }
+        // Entorno sin licencias o licencia ilegible: un cliente Pro caería aquí; nunca pedirle que compre.
+        if (this.licenseEnvUnsupported) return;
+        if (signature === this.lastBlockedNotice) return;
+        this.lastBlockedNotice = signature;
+        this.licenseIconShown = true;
+        const list = labels.map(l => this.featName(l)).join(", ");
+        const msg = this.proPreview
+            ? this.tf("UI_NoticePreview", "Line Chart: {0} — part of the Pro plan, shown here as a watermarked preview. Reading view shows the free chart.", list)
+            : this.tf("UI_NoticeBlocked", "Line Chart: {0} — part of the Pro plan. Get a licence to enable it.", list);
+        const show = () => {
+            try { lm.notifyFeatureBlocked?.(msg.slice(0, 500)); } catch { /* best-effort */ }
+            this.cancelLicenseIcon();
+            this.licenseIconTimer = window.setTimeout(() => {
+                this.licenseIconTimer = null;
+                if (this.isPro || !this.licenseIconShown) return;
+                // const enum: TypeScript lo sustituye por 0 (General).
+                try { lm.notifyLicenseRequired?.(powerbi.LicenseNotificationType.General); } catch { /* best-effort */ }
+            }, 10500);
+        };
+        // clearLicenseNotification puede devolver una promesa: mostrar antes de que acabe dejaría que borrase el aviso.
+        let cleared: any;
+        try { cleared = lm.clearLicenseNotification?.(); } catch { /* best-effort */ }
+        if (cleared && typeof cleared.then === "function") cleared.then(show, show); else show();
     }
 
     private get canInteract(): boolean {
@@ -371,6 +564,7 @@ export class Visual implements IVisual {
         }
         // Fuera del try: un fallo de licencia nunca convierte un render correcto en renderingFailed.
         this.requestLicenseDeferred();
+        try { this.notifyProFeatureBlocked(); } catch { /* best-effort */ }
     }
 
     /** Repinta con las últimas options fuera de update(): no emite rendering events. */
@@ -391,9 +585,13 @@ export class Visual implements IVisual {
                     (r: any) => {
                         if (r?.isLicenseUnsupportedEnv === true || r?.isLicenseInfoAvailable === false) this.licenseEnvUnsupported = true;
                         this.licenseResolved = true;
+                        // Solo Active y Warning (periodo de gracia: el cliente ha pagado) son licencias utilizables.
                         const pro = (r?.plans ?? []).some((p: any) => PLAN_IDS.some(id => matchesPlan(p.spIdentifier, id)) &&
                             (p.state === STATE_ACTIVE || p.state === STATE_WARNING));
-                        if (pro && !this.isPro) { this.isPro = true; this.repaint(); }
+                        if (pro) this.isPro = true;
+                        // Repinta sin emitir rendering events (la vista previa o el Pro dependen de esto) y avisa si toca.
+                        this.repaint();
+                        try { this.notifyProFeatureBlocked(); } catch { /* best-effort */ }
                     },
                     () => { this.licenseEnvUnsupported = true; this.licenseResolved = true; });
             } catch {
@@ -406,67 +604,212 @@ export class Visual implements IVisual {
     private clearDrawing(): void {
         this.svg.selectAll("*").remove();
         d3.select(this.root).selectAll(".lc-landing, .lc-msg").remove();
+        this.canvas = this.svg.append("g").attr("class", "lc-canvas") as unknown as Sel<SVGGElement>;
         this.drawn = [];
         this.L = null;
+        this.panels = [];
+        this.curPanel = null;
+        this.sharedDomains = null;
     }
 
     private render(options: VisualUpdateOptions): void {
         const dv = this.dataView;
         TEMPLATES.report = reportTemplate(this.host);
+        // Ya se sabe si hay licencia: de ahí sale si toca vista previa (solo editando y con la licencia resuelta).
+        this.proPreview = !this.isPro && this.editing && this.licenseResolved && !this.licenseEnvUnsupported;
         this.tplEfectiva = this.plantillaEfectiva(dv);
         this.settings = this.readSettings(dv, this.tplEfectiva);
         this.clearDrawing();
         const W = Math.max(0, options.viewport.width), H = Math.max(0, options.viewport.height);
         this.svg.attr("width", W).attr("height", H);
-        this.root.style.background = this.hc ? this.hcBg : "";
+        this.aplicarAspecto();
 
-        this.model = dv ? buildModel(dv, this.t("UI_Blank", "(Blank)")) : null;
+        // Small multiples: con Pro, todos los paneles; en la vista previa, los 4 primeros. Sin licencia en lectura, el
+        // PRIMER panel con un aviso (no la suma de los paneles: ver el informe del bloque 2). En un mosaico, uno.
+        const blank = this.t("UI_Blank", "(Blank)");
+        const smVals = dv ? panelValues(dv) : [];
+        const room = W >= 220 && H >= 140;
+        this.multi = smVals.length > 0 && room && this.previewOf("small multiples");
+        const shown = this.multi ? (this.isPro ? smVals : smVals.slice(0, PREVIEW_PANELS)) : [];
+        this.models = !dv ? [] : this.multi
+            ? shown.map(v => buildModel(dv, blank, v)).filter((m): m is Model => !!m)
+            : [buildModel(dv, blank)].filter((m): m is Model => !!m);
+        if (!this.models.length) this.multi = false;
+        this.model = this.models[0] ?? null;
         const m = this.model;
         if (!m) {
             this.renderLanding(W, H);
             this.renderGuide(W, H);
+            this.updateWatermark(W, H);
             return;
         }
-        this.assignColors(m);
+        this.allSeries = [];
+        const seen = new Set<string>();
+        for (const pm of this.models) for (const s of pm.series) if (!seen.has(s.id)) { seen.add(s.id); this.allSeries.push(s); }
+        this.assignColors();
         if (this.pendingRestore) { this.restoreSelection(this.pendingRestore); }
         else if (!this.selKeys.size) {
             const ids = this.selectionManager.getSelectionIds?.() as ISelectionId[] | undefined;
             if (ids && ids.length) this.restoreSelection(ids);
         }
-        this.pruneSelection(m);
+        this.pruneSelection();
         if (!m.keys.length) {
             this.message(W, H, m.missingAxis
                 ? this.tf("UI_NoAxisAll", "{0} values have no date on the axis: nothing to draw.", this.int(m.missingAxis))
                 : this.t("UI_NoData", "No data to draw."));
             this.renderGuide(W, H);
+            this.updateWatermark(W, H);
             return;
         }
-        this.draw(W, H);
+        if (this.multi) this.drawPanels(W, H);
+        else {
+            const p = this.newPanel(m, this.canvas, 0, 0);
+            this.draw(W, H, false);
+            this.savePanel(p);
+        }
+        if (TEST_STAMP && W >= 200) {
+            this.svg.append("text").attr("x", W - 4).attr("y", H - 3).attr("text-anchor", "end").style("font-size", "9px")
+                .attr("fill", this.hc ? this.hcFg : "#A19F9D").text("[" + TEST_STAMP + "]");
+        }
+        this.activate(this.panels[0]);
+        this.paintState();
         this.markSubSelectables();
         this.renderGuide(W, H);
+        this.updateWatermark(W, H);
         if (this.focusKey >= m.keys.length) this.focusKey = m.keys.length - 1;
         if (this.hasFocus) this.onFocus();
     }
 
     private int(n: number): string { return this.formatter("#,0").format(n); }
 
-    private assignColors(m: Model): void {
+    /** Colores sobre TODAS las series (de todos los paneles), para que una marca tenga el mismo en cada panel. */
+    private assignColors(): void {
         const classic = this.tplEfectiva === "classic";
+        const look = this.look;
         const pal: any = this.host.colorPalette;
-        m.series.forEach((s, i) => {
-            if (this.hc) s.color = this.hcFg;
-            else if (classic) s.color = CLASSIC[i % CLASSIC.length];
-            else s.color = pal?.getColor?.(s.name)?.value ?? CLASSIC[i % CLASSIC.length];
+        const byId = new Map<string, string>();
+        this.allSeries.forEach((s, i) => {
+            let c: string;
+            if (this.hc) c = this.hcFg;
+            else if (s.customColor) c = s.customColor;
+            else if (look) c = look.series[i % look.series.length];
+            else if (classic) c = CLASSIC[i % CLASSIC.length];
+            else c = pal?.getColor?.(s.name)?.value ?? CLASSIC[i % CLASSIC.length];
+            byId.set(s.id, c);
         });
+        for (const pm of this.models) for (const s of pm.series) s.color = byId.get(s.id) ?? s.color;
+    }
+
+    // ── Paneles ──────────────────────────────────────────────────────────────
+
+    private newPanel(model: Model, g: Sel<SVGGElement>, ox: number, oy: number): PanelState {
+        const p: PanelState = { model, g, ox, oy, L: null, x: () => 0, y1: null, y2: null, drawn: [] };
+        this.panels.push(p);
+        this.curPanel = p;
+        this.model = model; this.canvas = g; this.drawn = []; this.L = null;
+        return p;
+    }
+
+    private savePanel(p: PanelState): void {
+        p.L = this.L; p.x = this.x; p.y1 = this.y1; p.y2 = this.y2; p.drawn = this.drawn;
+    }
+
+    /** El puntero o el teclado pasan a este panel: el resto del código trabaja sobre this.model, this.x, etc. */
+    private activate(p: PanelState | null | undefined): void {
+        if (!p) return;
+        this.curPanel = p;
+        this.model = p.model; this.canvas = p.g; this.L = p.L; this.x = p.x; this.y1 = p.y1; this.y2 = p.y2; this.drawn = p.drawn;
+    }
+
+    /**
+     * Small multiples: una rejilla de paneles con las 9 opciones comunes (como Histogram y Pareto). Eje X compartido
+     * siempre (las claves salen de todas las filas); eje Y compartido por defecto (sharedY). Leyenda y avisos, una vez
+     * para todo el visual. Con fondo o borde, el panel es una caja con 6 px de aire alrededor del título y el gráfico.
+     */
+    private drawPanels(W: number, H: number): void {
+        const s = this.settings, sm = s.smallMultiples;
+        const n = this.models.length;
+        // Leyenda y avisos globales
+        const notes = this.notices();
+        const noticeH = notes.length ? notes.length * 13 + 4 : 0;
+        let legendRows: LegendItem[][] = [];
+        let legendH = 0;
+        if (s.legend.show && H >= 170) {
+            const items = this.legendItems();
+            if (items.length > 1 || (items.length === 1 && this.model.legendCol)) {
+                const fs = Number(s.legend.fontSize);
+                legendRows = this.wrapLegend(items, W - 8, fs).slice(0, H >= 320 ? 2 : 1);
+                legendH = legendRows.length * (fs + 8) + 4;
+                if (legendH > H * 0.2) { legendRows = []; legendH = 0; }
+            }
+        }
+        const legTop = s.legend.position !== "bottom";
+        const top = legTop ? legendH : 0;
+        const availH = Math.max(1, H - noticeH - legendH);
+        const cols = Number(sm.columns) >= 1 ? Math.min(n, Math.round(Number(sm.columns)))
+            // Celdas unas 1,6 veces más anchas que altas: una serie temporal se lee de izquierda a derecha.
+            : Math.max(1, Math.min(n, Math.round(Math.sqrt(n * (W / availH) / 1.6))));
+        const rows = Math.ceil(n / cols);
+        const gap = Math.max(0, Math.min(40, Number(sm.gap)));
+        const boxed = !!sm.border || !!sm.background;
+        const pad = boxed ? 6 : 0;
+        const tfs = Math.max(7, Number(sm.titleFontSize));
+        const titleH = tfs + 8 + pad;
+        const cellW = Math.max(1, (W - gap * (cols - 1)) / cols);
+        const cellH = Math.max(1, (availH - gap * (rows - 1)) / rows);
+        // Eje Y compartido: los dominios salen de todos los paneles.
+        if (sm.sharedY !== false) {
+            const hasY1 = this.models.some(pm => pm.series.some(x => x.role === "values"));
+            const hasY2 = this.models.some(pm => pm.series.some(x => x.role === "secondaryValues"));
+            const refsOn = !!s.references.show;
+            this.sharedDomains = {
+                d1: this.domainOf(hasY1 ? "values" : "secondaryValues", !!s.yAxis.zero, refsOn, this.models),
+                d2: hasY1 && hasY2 ? this.domainOf("secondaryValues", !!s.y2Axis.zero, false, this.models) : null,
+            };
+        }
+        const hc = this.hc;
+        this.models.forEach((pm, i) => {
+            const cx = (i % cols) * (cellW + gap);
+            const cy = top + Math.floor(i / cols) * (cellH + gap);
+            const pg = this.svg.append("g").attr("class", "lc-panel").attr("transform", `translate(${cx},${cy})`);
+            if (boxed) {
+                pg.append("rect").attr("class", "lc-sm-box").attr("x", 0.5).attr("y", 0.5)
+                    .attr("width", Math.max(0, cellW - 1)).attr("height", Math.max(0, cellH - 1)).attr("rx", 2)
+                    .attr("fill", hc ? "none" : (sm.background || "none"))
+                    .attr("stroke", sm.border ? (hc ? this.hcFg : String(sm.borderColor)) : "none").style("pointer-events", "none");
+            }
+            const centro = sm.titleAlign === "center";
+            const title = pm.smShown ?? "";
+            pg.append("text").attr("class", "lc-sm-title").attr("x", centro ? cellW / 2 : pad + 2).attr("y", tfs + pad)
+                .attr("text-anchor", centro ? "middle" : "start").style("font-size", tfs + "px")
+                .style("font-weight", sm.titleBold ? "600" : "400").attr("fill", hc ? this.hcFg : String(sm.titleColor))
+                .text(this.fit(title === "" ? this.t("UI_Blank", "(Blank)") : title, tfs, cellW - 2 * pad - 4));
+            const body = pg.append("g").attr("transform", `translate(${pad},${titleH})`) as unknown as Sel<SVGGElement>;
+            const p = this.newPanel(pm, body, cx + pad, cy + titleH);
+            this.draw(Math.max(1, cellW - 2 * pad), Math.max(1, cellH - titleH - pad), true);
+            this.savePanel(p);
+        });
+        const gl: any = { W, H, legendRows, legendH, noticeH };
+        if (legendRows.length) this.drawLegend(gl);
+        if (noticeH) this.drawNotices(gl);
     }
 
     // ── Dibujo ───────────────────────────────────────────────────────────────
 
-    private notices(m: Model): string[] {
+    /** Avisos de todo el visual (no por panel). */
+    private notices(): string[] {
+        const m = this.models[0];
         const out: string[] = [];
+        if (!m) return out;
         if (m.segment) out.push(this.t("UI_Segment", "Power BI sent only part of the data (over 30,000 combinations): the chart is incomplete. Filter it or use a coarser axis."));
-        if (m.missingAxis) out.push(this.tf("UI_NoAxis", "{0} values without a date on the axis", this.int(m.missingAxis)));
-        if (m.smCol && m.smPanels > 1) out.push(this.tf("UI_SmPending", "Small multiples are not drawn yet: showing {0}", m.smShown || this.t("UI_Blank", "(Blank)")));
+        const missing = this.models.reduce((a, pm) => a + pm.missingAxis, 0);
+        if (missing) out.push(this.tf("UI_NoAxis", "{0} values without a date on the axis", this.int(missing)));
+        const blank = this.t("UI_Blank", "(Blank)");
+        if (m.smCol && m.smPanels > 1 && !this.multi) {
+            out.push(this.tf("UI_SmFirst", "Small multiples are part of Pro: showing {0} only", m.smShown || blank));
+        } else if (this.multi && m.smPanels > this.models.length) {
+            out.push(this.tf("UI_SmPreview", "Pro preview: the first {0} of {1} panels", String(this.models.length), String(m.smPanels)));
+        }
         return out;
     }
 
@@ -475,10 +818,10 @@ export class Visual implements IVisual {
         return s?.format;
     }
 
-    private domainOf(role: "values" | "secondaryValues", zero: boolean, withRefs: boolean): [number, number] | null {
+    private domainOf(role: "values" | "secondaryValues", zero: boolean, withRefs: boolean, models: Model[] = [this.model]): [number, number] | null {
         let lo = Infinity, hi = -Infinity;
         const take = (v: number | null) => { if (v !== null && isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } };
-        for (const s of this.model.series) {
+        for (const m of models) for (const s of m.series) {
             if (s.role !== role) continue;
             s.values.forEach(take);
             if (withRefs) for (const r of s.refs) r.values.forEach(take);
@@ -489,7 +832,8 @@ export class Visual implements IVisual {
         return [lo, hi];
     }
 
-    private draw(W: number, H: number): void {
+    /** Dibuja el panel activo (this.model) en this.canvas. inPanel: una celda de small multiples (sin leyenda ni avisos). */
+    private draw(W: number, H: number, inPanel: boolean): void {
         const m = this.model;
         const s = this.settings;
         const hc = this.hc;
@@ -498,14 +842,15 @@ export class Visual implements IVisual {
         const hasY2 = m.series.some(x => x.role === "secondaryValues");
         const hasY1 = m.series.some(x => x.role === "values");
 
-        const d1 = this.domainOf(hasY1 ? "values" : "secondaryValues", s.yAxis.zero, refsOn);
-        const d2 = hasY1 && hasY2 ? this.domainOf("secondaryValues", s.y2Axis.zero, false) : null;
+        const sd = this.sharedDomains;
+        const d1 = sd ? sd.d1 : this.domainOf(hasY1 ? "values" : "secondaryValues", s.yAxis.zero, refsOn);
+        const d2 = sd ? (hasY1 && hasY2 ? sd.d2 : null) : (hasY1 && hasY2 ? this.domainOf("secondaryValues", s.y2Axis.zero, false) : null);
         this.y1 = d3.scaleLinear().domain(d1 ?? [0, 1]).nice();
         this.y2 = d2 ? d3.scaleLinear().domain(d2).nice() : null;
         const onY2 = (x: Series) => !!this.y2 && x.role === "secondaryValues";
         const yOf = (x: Series) => (onY2(x) ? this.y2 : this.y1);
 
-        const L = this.layoutFor(W, H, mode, m);
+        const L = this.layoutFor(W, H, mode, m, inPanel);
         this.L = L;
         this.y1.range([L.top + L.plotH, L.top]);
         if (this.y2) this.y2.range([L.top + L.plotH, L.top]);
@@ -527,11 +872,12 @@ export class Visual implements IVisual {
         }
         if (mode === "full") this.drawYAxes(L, hasY1, hasY2);
 
-        // Capas
-        const gRefs = this.svg.append("g").attr("class", "lc-refs");
-        const gLines = this.svg.append("g").attr("class", "lc-lines");
-        this.svg.append("g").attr("class", "lc-sel");
-        this.svg.append("g").attr("class", "lc-cross");
+        // Capas: banda debajo de todo, luego referencias y líneas.
+        const gBands = this.canvas.append("g").attr("class", "lc-bands");
+        const gRefs = this.canvas.append("g").attr("class", "lc-refs");
+        const gLines = this.canvas.append("g").attr("class", "lc-lines");
+        this.canvas.append("g").attr("class", "lc-sel");
+        this.canvas.append("g").attr("class", "lc-cross");
 
         const missing = String(s.lines.missing);
         const lw = Number(s.lines.width);
@@ -539,6 +885,8 @@ export class Visual implements IVisual {
         const markerMode = String(s.lines.markers);
         const showMarkers = mode !== "spark" && (markerMode === "on" || (markerMode === "auto" && K <= 40 && L.plotW / K >= 10) || hc);
         const series = mode === "spark" ? m.series.slice(0, 8) : m.series;
+        // Banda real-vs-referencia (Pro): no en el mosaico pequeño (< 220 × 140), donde solo sería ruido.
+        const bandOn = refsOn && mode === "full" && !!s.references.gapShading && this.previewOf("gap shading");
 
         series.forEach((ser, si) => {
             const y = yOf(ser);
@@ -575,25 +923,61 @@ export class Visual implements IVisual {
                     if (sym) g.append("path").attr("class", "lc-marker").attr("d", sym()).attr("transform", `translate(${cx},${cy})`)
                         .attr("fill", this.hcBg).attr("stroke", color).attr("stroke-width", 1.5);
                     else g.append("circle").attr("class", "lc-marker").attr("cx", cx).attr("cy", cy).attr("r", Number(s.lines.markerSize))
-                        .attr("fill", color).attr("stroke", this.hc ? this.hcBg : "#FFFFFF").attr("stroke-width", 1);
+                        .attr("fill", color).attr("stroke", this.bgColor).attr("stroke-width", 1);
                 });
             }
             if (refsOn) this.drawRefs(gRefs, ser, y);
+            if (bandOn) this.drawBand(gBands, ser, y, segs);
         });
 
         if (L.labels) this.drawEndLabels(L, yOf);
         if (L.legend) this.drawLegend(L);
         if (mode === "spark") this.drawSparkValue(L);
         if (L.noticeH) this.drawNotices(L);
-        if (TEST_STAMP && W >= 200) {
-            this.svg.append("text").attr("x", W - 4).attr("y", H - 3).attr("text-anchor", "end").style("font-size", "9px")
-                .attr("fill", hc ? this.hcFg : "#A19F9D").text("[" + TEST_STAMP + "]");
-        }
         this.drawOverlay(L);
-        this.paintState();
     }
 
-    private layoutFor(W: number, H: number, mode: Layout["mode"], m: Model): Layout {
+    /** La referencia contra la que se mide la serie real: el plan si hay, si no el año anterior. */
+    private bandRef(ser: Series): RefLine | null {
+        return ser.refs.find(r => r.kind === "plan") ?? ser.refs.find(r => r.kind === "previousYear") ?? null;
+    }
+
+    /**
+     * Banda real-vs-referencia: verde por encima, rojo por debajo, partida en el cruce exacto (gapBands). Opacidad ≤ 30 %.
+     * Alto contraste: sin color, con trama (diagonales por encima, puntos por debajo) en el color del primer plano.
+     */
+    private drawBand(g: d3.Selection<SVGGElement, unknown, null, undefined>, ser: Series, y: d3.ScaleLinear<number, number>, segs: Pt[][]): void {
+        const ref = this.bandRef(ser);
+        if (!ref) return;
+        const bands = gapBands(segs, this.refSegments(ser, ref));
+        if (!bands.length) return;
+        const s = this.settings.references;
+        const op = Math.max(0.05, Math.min(0.3, Number(s.gapOpacity) / 100));
+        const gg = g.append("g").attr("class", "lc-band").attr("data-id", ser.id).attr("data-kind", ref.kind);
+        const hc = this.hc;
+        if (hc) this.ensureHatches();
+        for (const b of bands) {
+            const fwd = b.pts.map(p => this.x(p.pos).toFixed(2) + "," + y(p.a).toFixed(2));
+            const back = b.pts.slice().reverse().map(p => this.x(p.pos).toFixed(2) + "," + y(p.b).toFixed(2));
+            const up = b.sign > 0;
+            gg.append("path").attr("class", up ? "lc-band-up" : "lc-band-down").attr("d", "M" + fwd.concat(back).join("L") + "Z")
+                .attr("fill", hc ? `url(#${this.hatchId}-${up ? "up" : "down"})` : String(up ? s.aboveColor : s.belowColor))
+                .attr("fill-opacity", hc ? 1 : op).attr("stroke", "none").style("pointer-events", "none");
+        }
+    }
+
+    /** Tramas del alto contraste, una vez por dibujo. */
+    private ensureHatches(): void {
+        if (!this.svg.select(`#${this.hatchId}-up`).empty()) return;
+        const defs = this.svg.insert("defs", ":first-child");
+        const fg = this.hcFg;
+        const up = defs.append("pattern").attr("id", this.hatchId + "-up").attr("patternUnits", "userSpaceOnUse").attr("width", 7).attr("height", 7);
+        up.append("path").attr("d", "M-1,8 L8,-1").attr("stroke", fg).attr("stroke-width", 1.2);
+        const down = defs.append("pattern").attr("id", this.hatchId + "-down").attr("patternUnits", "userSpaceOnUse").attr("width", 6).attr("height", 6);
+        down.append("circle").attr("cx", 3).attr("cy", 3).attr("r", 1.1).attr("fill", fg);
+    }
+
+    private layoutFor(W: number, H: number, mode: Layout["mode"], m: Model, inPanel = false): Layout {
         const s = this.settings;
         const L: Layout = {
             mode, W, H, left: 4, right: 4, top: 4, bottom: 4, plotW: 0, plotH: 0,
@@ -603,7 +987,7 @@ export class Visual implements IVisual {
         if (mode === "spark") {
             const s0 = m.series[0];
             const txt = s0 && s0.lastIndex >= 0 ? this.fmtShort(s0.values[s0.lastIndex], s0.formats[s0.lastIndex] ?? s0.format) : "";
-            const fs = Math.max(10, Math.min(22, H * 0.32));
+            const fs = Math.max(10, Math.min(inPanel ? 14 : 22, H * 0.32));
             L.right = W >= 120 && txt ? Math.min(W * 0.45, this.measure(txt, fs, true) + 10) : 4;
             L.plotW = Math.max(1, W - L.left - L.right);
             L.plotH = Math.max(1, H - 8);
@@ -615,19 +999,19 @@ export class Visual implements IVisual {
             L.plotH = Math.max(1, H - 12);
             return L;
         }
-        const notes = this.notices(m);
+        const notes = inPanel ? [] : this.notices();
         L.noticeH = notes.length ? notes.length * 13 + 4 : 0;
         const plotMin = Math.max(36, H * 0.45);
         // Lo que el usuario activa es el MÁXIMO: si no cabe, se quita (no se encoge). Lo último en irse, las líneas.
         const xfs = Number(s.xAxis.fontSize), yfs = Number(s.yAxis.fontSize), y2fs = Number(s.y2Axis.fontSize);
         L.xAxis = !!s.xAxis.show;
-        L.xTitle = L.xAxis && !!s.xAxis.title && H >= 220;
+        L.xTitle = !inPanel && L.xAxis && !!s.xAxis.title && H >= 220;
         L.yAxis = !!s.yAxis.show && m.series.some(x => x.role === "values" || !this.y2);
-        L.yTitle = L.yAxis && !!s.yAxis.title && W >= 300 && H >= 180;
+        L.yTitle = !inPanel && L.yAxis && !!s.yAxis.title && W >= 300 && H >= 180;
         L.y2Axis = !!this.y2 && !!s.y2Axis.show;
-        L.y2Title = L.y2Axis && !!s.y2Axis.title && W >= 300 && H >= 180;
-        // Legend
-        if (s.legend.show && H >= 170) {
+        L.y2Title = !inPanel && L.y2Axis && !!s.y2Axis.title && W >= 300 && H >= 180;
+        // Legend (en small multiples va una sola, para todo el visual)
+        if (!inPanel && s.legend.show && H >= 170) {
             const items = this.legendItems();
             if (items.length > 1 || (items.length === 1 && m.legendCol)) {
                 const fs = Number(s.legend.fontSize);
@@ -647,10 +1031,13 @@ export class Visual implements IVisual {
         if (L.yAxis) L.y1W = Math.min(tickW(this.y1, this.yFormat(this.y2 ? "values" : (m.series.some(x => x.role === "values") ? "values" : "secondaryValues")), yfs), W * 0.25);
         if (L.y2Axis) L.y2W = Math.min(tickW(this.y2, this.yFormat("secondaryValues"), y2fs), W * 0.2);
         // Etiquetas al final
-        if (s.endLabels.show && W >= 320) {
+        if (s.endLabels.show && W >= (inPanel ? 220 : 320)) {
             const fs = Number(s.endLabels.fontSize);
-            const lab = this.labelCandidates().map(c => this.measure(c.text, fs)).reduce((a, b) => Math.max(a, b), 0);
-            if (lab > 0) { L.labels = true; L.labelW = Math.min(lab + 16, W * 0.3); }
+            const cands = this.labelCandidates();
+            const lab = cands.map(c => this.measure(c.text, fs)).reduce((a, b) => Math.max(a, b), 0);
+            // Con desvío la etiqueta es más larga: un poco más de sitio (el nombre se acorta antes que el desvío).
+            const cap = cands.some(c => c.vari) ? 0.38 : 0.3;
+            if (lab > 0) { L.labels = true; L.labelW = Math.min(lab + 16, W * cap); }
         }
         const compute = () => {
             L.top = 6 + (L.legend && s.legend.position === "top" ? L.legendH : 0);
@@ -694,7 +1081,7 @@ export class Visual implements IVisual {
             : unit >= 27 * day ? { month: "short", year: "numeric" }
             : { day: "numeric", month: "short" };
         if (m.cadence >= 27 * day) ticks = ticks.filter(t => t.getDate() === 1);
-        const g = this.svg.append("g").attr("class", "lc-x lc-axis");
+        const g = this.canvas.append("g").attr("class", "lc-x lc-axis");
         const y = L.top + L.plotH;
         const color = this.axisColor("xAxis");
         let lastRight = -Infinity;
@@ -719,7 +1106,7 @@ export class Visual implements IVisual {
         const slot = L.plotW / Math.max(1, K);
         const maxW = Math.max(30, Math.min(widest, 140));
         const every = Math.max(1, Math.ceil((maxW + 8) / slot));
-        const g = this.svg.append("g").attr("class", "lc-x lc-axis");
+        const g = this.canvas.append("g").attr("class", "lc-x lc-axis");
         const y = L.top + L.plotH;
         const color = this.axisColor("xAxis");
         for (let i = 0; i < K; i += every) {
@@ -744,7 +1131,7 @@ export class Visual implements IVisual {
         const count = Math.max(2, Math.floor(L.plotH / 40));
         const gridOn = !!s.yAxis.grid;
         const gridColor = this.hc ? this.hcFg : String(s.yAxis.gridColor);
-        const g1 = this.svg.append("g").attr("class", "lc-y lc-axis");
+        const g1 = this.canvas.append("g").attr("class", "lc-y lc-axis");
         const primRole = this.y2 ? "values" : (hasY1 ? "values" : "secondaryValues");
         const fmt1 = this.yFormat(primRole);
         const t1 = this.y1.ticks(count);
@@ -765,7 +1152,7 @@ export class Visual implements IVisual {
                 .text(this.fit(names, fs1, L.plotH));
         }
         if (this.y2 && L.y2Axis && hasY2) {
-            const g2 = this.svg.append("g").attr("class", "lc-y2 lc-axis");
+            const g2 = this.canvas.append("g").attr("class", "lc-y2 lc-axis");
             const fs2 = Number(s.y2Axis.fontSize);
             const fmt2 = this.yFormat("secondaryValues");
             const t2 = this.y2.ticks(count);
@@ -793,25 +1180,43 @@ export class Visual implements IVisual {
         return this.t(k, d);
     }
 
-    /** Plan, año anterior y previsión: líneas finas discontinuas, grises (o del color de su serie). Sin banda ni Δ (Pro). */
-    private drawRefs(g: Sel<SVGGElement>, ser: Series, y: d3.ScaleLinear<number, number>): void {
+    /** Tramos de una referencia tal como se dibuja (la previsión arranca en el último real). */
+    private refSegments(ser: Series, r: RefLine): Pt[][] {
         const s = this.settings, m = this.model;
-        const color = this.hc ? this.hcFg : (s.references.colorMode === "series" ? ser.color : String(s.references.color));
+        let values = r.values;
+        let from = 0;
+        if (r.kind === "forecast" && ser.lastIndex >= 0 && r.values.some((v, k) => v !== null && k > ser.lastIndex)) {
+            values = r.values.slice();
+            values[ser.lastIndex] = ser.values[ser.lastIndex];
+            from = ser.lastIndex;
+        }
+        const own: number[] = [];
+        values.forEach((v, k) => { if (v !== null && k >= from) own.push(m.keys[k].pos); });
+        const cad = cadenceOf(own) || m.cadence;
+        return segmentsOf(values, m.keys, s.lines.missing === "connect" ? "connect" : "break", cad, m.cadence, m.isTime, from);
+    }
+
+    /**
+     * Color de una referencia: gris (o el de su serie). Con un estilo de la colección, el plan lleva el color de plan del
+     * estilo (targetColor de KPI Card) mientras el usuario no haya elegido su propio gris.
+     */
+    private refColor(kind: RefKind, ser: Series | null): string {
+        const s = this.settings;
+        if (this.hc) return this.hcFg;
+        if (s.references.colorMode === "series" && ser) return ser.color;
+        const saved = (this.dataView?.metadata?.objects as any)?.references?.color;
+        if (kind === "plan" && this.look && !saved) return this.look.plan;
+        return String(s.references.color);
+    }
+
+    /** Plan, año anterior y previsión: líneas finas discontinuas, grises (o del color de su serie). */
+    private drawRefs(g: Sel<SVGGElement>, ser: Series, y: d3.ScaleLinear<number, number>): void {
+        const s = this.settings;
         const width = Number(s.references.width);
         const line = d3.line<Pt>().x(p => this.x(p.pos)).y(p => y(p.v));
         for (const r of ser.refs) {
-            let values = r.values;
-            let from = 0;
-            if (r.kind === "forecast" && ser.lastIndex >= 0 && r.values.some((v, k) => v !== null && k > ser.lastIndex)) {
-                // La previsión sigue desde el último real.
-                values = r.values.slice();
-                values[ser.lastIndex] = ser.values[ser.lastIndex];
-                from = ser.lastIndex;
-            }
-            const own: number[] = [];
-            values.forEach((v, k) => { if (v !== null && k >= from) own.push(m.keys[k].pos); });
-            const cad = cadenceOf(own) || m.cadence;
-            const segs = segmentsOf(values, m.keys, s.lines.missing === "connect" ? "connect" : "break", cad, m.cadence, m.isTime, from);
+            const color = this.refColor(r.kind, ser);
+            const segs = this.refSegments(ser, r);
             const gg = g.append("g").attr("class", "lc-ref").attr("data-id", ser.id).attr("data-kind", r.kind);
             for (const seg of segs) {
                 if (seg.length > 1) {
@@ -826,17 +1231,52 @@ export class Visual implements IVisual {
 
     // ── Etiquetas al final ───────────────────────────────────────────────────
 
-    private labelCandidates(): { s: Series; text: string; v: number }[] {
+    /**
+     * Desvío del último valor contra su referencia (plan, o año anterior si no hay plan): "−9,1 % vs plan" o
+     * "+120K vs PY". Signo siempre explícito, menos tipográfico, % con el locale del informe. Null sin referencia.
+     */
+    private varianceText(x: Series, k: number): { text: string; sign: number } | null {
+        const ref = this.bandRef(x);
+        if (!ref || k < 0) return null;
+        const rv = ref.values[k], v = x.values[k];
+        if (rv === null || v === null || !isFinite(rv) || !isFinite(v)) return null;
+        const d = v - rv;
+        let str: string;
+        if (String(this.settings.endLabels.variance) === "pct") {
+            if (rv === 0) return null;
+            const pct = d / Math.abs(rv);
+            try {
+                str = new Intl.NumberFormat(this.host.locale || "en-US",
+                    { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "exceptZero" } as Intl.NumberFormatOptions).format(pct);
+            } catch {
+                str = (pct > 0 ? "+" : "") + (pct * 100).toFixed(1) + "%";
+            }
+        } else {
+            const f = x.formats[k] ?? x.format;
+            str = (d > 0 ? "+" : d < 0 ? "-" : "") + this.fmtShort(Math.abs(d), f, Math.abs(d));
+        }
+        str = str.replace("-", "−");
+        const text = ref.kind === "plan" ? this.tf("UI_VsPlan", "{0} vs plan", str) : this.tf("UI_VsPY", "{0} vs PY", str);
+        return { text, sign: Math.sign(d) };
+    }
+
+    /** head = el nombre (lo que se acorta primero); rest = valor y fecha; vari = el desvío (Pro). */
+    private labelCandidates(): { s: Series; text: string; v: number; head: string; rest: string; vari: string; sign: number }[] {
         const m = this.model, s = this.settings;
         const content = String(s.endLabels.content);
         const lastPos = m.keys[m.keys.length - 1]?.pos;
+        const varOn = String(s.endLabels.variance) !== "off" && this.previewOf("variance label");
         const out = m.series.filter(x => x.lastIndex >= 0).map(x => {
             const v = x.values[x.lastIndex];
             const val = this.fmtShort(v, x.formats[x.lastIndex] ?? x.format);
-            let text = content === "value" ? val : content === "name" ? x.name : x.name + "  " + val;
+            const head = content === "value" ? "" : x.name;
+            let rest = content === "value" ? val : content === "name" ? "" : "  " + val;
             // Si su último valor es anterior al final del eje, se dice cuándo.
-            if (content !== "name" && m.keys[x.lastIndex].pos < lastPos) text += " · " + this.keyLabel(x.lastIndex);
-            return { s: x, text, v };
+            if (content !== "name" && m.keys[x.lastIndex].pos < lastPos) rest += " · " + this.keyLabel(x.lastIndex);
+            const vt = varOn ? this.varianceText(x, x.lastIndex) : null;
+            const vari = vt ? vt.text : "";
+            const text = head + rest + (vari ? " · " + vari : "");
+            return { s: x, text, v, head, rest, vari, sign: vt ? vt.sign : 0 };
         });
         out.sort((a, b) => b.v - a.v);
         return out.slice(0, Math.max(1, Number(s.endLabels.maxLabels)));
@@ -854,9 +1294,10 @@ export class Visual implements IVisual {
         for (const it of items) { it.y = Math.max(it.want, prev + gap, top); prev = it.y; }
         let next = Infinity;
         for (let i = items.length - 1; i >= 0; i--) { items[i].y = Math.min(items[i].y, next - gap, bottom); next = items[i].y; }
-        const g = this.svg.append("g").attr("class", "lc-endlabels");
+        const g = this.canvas.append("g").attr("class", "lc-endlabels");
         const x0 = L.left + L.plotW;
         const tx = x0 + 12;
+        const maxW = L.labelW - 14;
         for (const it of items) {
             const px = this.x(this.model.keys[it.s.lastIndex].pos);
             const color = this.hc ? this.hcFg : (s.endLabels.seriesColor ? this.readable(it.s.color, String(s.endLabels.color)) : String(s.endLabels.color));
@@ -867,24 +1308,44 @@ export class Visual implements IVisual {
                     .attr("stroke", this.hc ? this.hcFg : it.s.color).attr("stroke-width", 0.8).attr("opacity", 0.6)
                     .attr("stroke-dasharray", px < x0 - 2 ? "2,2" : null);
             }
-            const txt = this.fit(it.text, fs, L.labelW - 14);
-            lg.append("text").attr("x", tx).attr("y", it.y).attr("dy", "0.32em").style("font-size", fs + "px").attr("fill", color)
-                .style("font-weight", "600").text(txt).append("title").text(it.text);
+            const t = lg.append("text").attr("x", tx).attr("y", it.y).attr("dy", "0.32em").style("font-size", fs + "px").attr("fill", color)
+                .style("font-weight", "600");
+            if (!it.vari) {
+                t.text(this.fit(it.text, fs, maxW));
+            } else {
+                // Lo último en acortarse es el desvío: primero el nombre, luego todo.
+                const tail = it.rest + " · ";
+                let head = it.head;
+                if (this.measure(it.text, fs) > maxW) {
+                    const room = maxW - this.measure(tail + it.vari, fs);
+                    head = head && room > this.measure("…", fs) + 8 ? this.fit(head, fs, room) : "";
+                }
+                const main = (head + tail).replace(/^ +/, "");
+                if (this.measure(main + it.vari, fs) > maxW + 1) {
+                    t.text(this.fit(it.text, fs, maxW));
+                } else {
+                    t.append("tspan").text(main);
+                    const up = it.sign > 0, down = it.sign < 0;
+                    const vc = this.hc ? this.hcFg : up ? this.readable(String(s.references.aboveColor), color)
+                        : down ? this.readable(String(s.references.belowColor), color) : color;
+                    t.append("tspan").attr("class", "lc-variance").attr("fill", vc).text(it.vari);
+                }
+            }
+            t.append("title").text(it.text);
         }
     }
 
     /** El color de la serie si se lee sobre el fondo del informe (contraste ≥ 3:1); si no, el color de texto. */
     private readable(color: string, fallback: string): string {
-        const bg = (this.host.colorPalette as any)?.background?.value ?? "#FFFFFF";
-        return contrast(color, bg) >= 3 ? color : fallback;
+        return contrast(color, this.bgColor) >= 3 ? color : fallback;
     }
 
     private drawSparkValue(L: Layout): void {
         const s0 = this.model.series[0];
         if (!s0 || s0.lastIndex < 0 || L.right < 20) return;
-        const fs = Math.max(10, Math.min(22, L.H * 0.32));
+        const fs = Math.max(10, Math.min(this.multi ? 14 : 22, L.H * 0.32));
         const v = s0.values[s0.lastIndex];
-        this.svg.append("text").attr("class", "lc-endlabel").attr("x", L.W - 4).attr("y", L.H / 2).attr("dy", "0.32em")
+        this.canvas.append("text").attr("class", "lc-endlabel").attr("x", L.W - 4).attr("y", L.H / 2).attr("dy", "0.32em")
             .attr("text-anchor", "end").style("font-size", fs + "px").style("font-weight", "600")
             .attr("fill", this.hc ? this.hcFg : this.readable(s0.color, String(this.settings.endLabels.color))).text(this.fmtShort(v, s0.formats[s0.lastIndex] ?? s0.format));
     }
@@ -894,10 +1355,13 @@ export class Visual implements IVisual {
     private legendItems(): LegendItem[] {
         const m = this.model, s = this.settings;
         const fs = Number(s.legend.fontSize);
-        const items: LegendItem[] = m.series.map((x, i) => ({ label: x.name, color: x.color, kind: "series" as const,
+        // Todas las series de todos los paneles (una leyenda para todo el visual).
+        const items: LegendItem[] = this.allSeries.map((x, i) => ({ label: x.name, color: x.color, kind: "series" as const,
             dash: this.hc ? HC_DASH[i % HC_DASH.length] : "", series: x, w: 0, idx: i }));
         if (s.references.show && s.references.legend) {
-            for (const k of m.refKinds) items.push({ label: this.refName(k), color: this.hc ? this.hcFg : String(s.references.color),
+            const kinds = REF_KINDS_ORDER.filter(k => this.models.some(pm => pm.refKinds.indexOf(k) >= 0));
+            void m;
+            for (const k of kinds) items.push({ label: this.refName(k), color: this.refColor(k, null),
                 kind: "ref", dash: REF_DASH[k], ref: k, w: 0, idx: -1 });
         }
         for (const it of items) it.w = 22 + Math.min(this.measure(it.label, fs), 160) + 12;
@@ -954,11 +1418,11 @@ export class Visual implements IVisual {
     }
 
     private drawNotices(L: Layout): void {
-        const notes = this.notices(this.model);
+        const notes = this.notices();
         const g = this.svg.append("g").attr("class", "lc-notice").attr("role", "status");
         notes.forEach((n, i) => {
             const t = g.append("text").attr("x", 6).attr("y", L.H - L.noticeH + 12 + i * 13).style("font-size", "10px")
-                .attr("fill", this.hc ? this.hcFg : (i === 0 && this.model.segment ? "#A4262C" : "#605E5C"))
+                .attr("fill", this.hc ? this.hcFg : (i === 0 && this.model.segment ? (this.look?.down ?? "#A4262C") : this.axisColor("xAxis")))
                 .text("⚠ " + this.fit(n, 10, L.W - 20));
             t.append("title").text(n);
         });
@@ -967,25 +1431,27 @@ export class Visual implements IVisual {
     private message(W: number, H: number, text: string): void {
         const m = this.model;
         this.svg.append("text").attr("class", "lc-msg-text").attr("x", W / 2).attr("y", H / 2).attr("text-anchor", "middle")
-            .style("font-size", "12px").attr("fill", this.hc ? this.hcFg : "#605E5C").text(this.fit(text, 12, W - 16));
+            .style("font-size", "12px").attr("fill", this.axisColor("xAxis")).text(this.fit(text, 12, W - 16));
         if (m && m.segment) {
             this.svg.append("text").attr("x", W / 2).attr("y", H / 2 + 18).attr("text-anchor", "middle").style("font-size", "10px")
-                .attr("fill", this.hc ? this.hcFg : "#A4262C").text(this.fit(this.notices(m)[0], 10, W - 16));
+                .attr("fill", this.hc ? this.hcFg : "#A4262C").text(this.fit(this.notices()[0], 10, W - 16));
         }
     }
 
     // ── Interacción ──────────────────────────────────────────────────────────
 
     private drawOverlay(L: Layout): void {
-        const r = this.svg.append("rect").attr("class", "lc-overlay").attr("x", L.left).attr("y", L.top)
+        const r = this.canvas.append("rect").attr("class", "lc-overlay").attr("x", L.left).attr("y", L.top)
             .attr("width", L.plotW).attr("height", L.plotH).attr("fill", "transparent")
             .style("pointer-events", this.formatMode ? "none" : "all");
-        r.on("pointermove", (e: PointerEvent) => this.onMove(e))
-            .on("pointerleave", () => { this.hoverId = null; this.drawCross(-1); this.hideTip(); this.paintState(); })
-            .on("click", (e: MouseEvent) => this.onClick(e))
-            .on("contextmenu", (e: MouseEvent) => this.onContext(e));
+        // Cada panel tiene su capa: el puntero activa su panel antes de nada.
+        const p = this.curPanel;
+        r.on("pointermove", (e: PointerEvent) => { this.activate(p); this.onMove(e); })
+            .on("pointerleave", () => { this.activate(p); this.hoverId = null; this.drawCross(-1); this.hideTip(); this.paintState(); })
+            .on("click", (e: MouseEvent) => { this.activate(p); this.onClick(e); })
+            .on("contextmenu", (e: MouseEvent) => { this.activate(p); this.onContext(e); });
         const node = this.svg.node() as SVGSVGElement;
-        node.setAttribute("tabindex", L.mode === "full" ? "0" : "-1");
+        node.setAttribute("tabindex", L.mode === "full" || this.multi ? "0" : "-1");
         node.setAttribute("role", "application");
         node.setAttribute("aria-roledescription", this.t("UI_AriaChart", "line chart"));
         node.setAttribute("aria-label", this.tf("UI_AriaSummary", "{0} series over {1} points. Arrow keys move between points and series, Enter selects.",
@@ -1036,9 +1502,11 @@ export class Visual implements IVisual {
         return { k, d: near, onPoint };
     }
 
+    /** Coordenadas del puntero en el sistema del panel activo. */
     private localXY(e: MouseEvent): [number, number] {
         const r = (this.svg.node() as SVGSVGElement).getBoundingClientRect();
-        return [e.clientX - r.left, e.clientY - r.top];
+        const p = this.curPanel;
+        return [e.clientX - r.left - (p ? p.ox : 0), e.clientY - r.top - (p ? p.oy : 0)];
     }
 
     private onMove(e: PointerEvent): void {
@@ -1081,12 +1549,12 @@ export class Visual implements IVisual {
     }
 
     private drawCross(k: number): void {
-        const g = this.svg.select<SVGGElement>(".lc-cross");
+        const g = this.canvas.select<SVGGElement>(".lc-cross");
         g.selectAll("*").remove();
         if (k < 0 || !this.model || !this.L || this.L.mode === "spark") return;
         const L = this.L, m = this.model;
         const x = this.x(m.keys[k].pos);
-        const color = this.hc ? this.hcFg : "#8A8886";
+        const color = this.hc ? this.hcFg : this.axisColor("xAxis");
         g.append("line").attr("x1", x).attr("x2", x).attr("y1", L.top).attr("y2", L.top + L.plotH).attr("stroke", color)
             .attr("stroke-width", 1).attr("stroke-dasharray", "3,3").style("pointer-events", "none");
         this.drawn.forEach((d, i) => {
@@ -1094,14 +1562,16 @@ export class Visual implements IVisual {
             if (v === null) return;
             const focused = this.hasFocus && i === this.focusSeries;
             g.append("circle").attr("cx", x).attr("cy", d.y(v)).attr("r", focused ? 5.5 : 3.5)
-                .attr("fill", this.hc ? this.hcBg : "#FFFFFF").attr("stroke", this.hc ? (focused ? this.hcSel : this.hcFg) : d.s.color)
+                .attr("fill", this.bgColor).attr("stroke", this.hc ? (focused ? this.hcSel : this.hcFg) : d.s.color)
                 .attr("stroke-width", focused ? 3 : 2).style("pointer-events", "none");
         });
     }
 
     private tipItems(k: number, focus: Series | null): VisualTooltipDataItem[] {
         const m = this.model;
-        const items: VisualTooltipDataItem[] = [{ displayName: m.axisName, value: this.keyLabel(k) }];
+        const items: VisualTooltipDataItem[] = [];
+        if (this.multi && m.smCol) items.push({ displayName: m.smCol.source.displayName, value: m.smShown || this.t("UI_Blank", "(Blank)") });
+        items.push({ displayName: m.axisName, value: this.keyLabel(k) });
         const list = m.series.filter(s => s.rows[k] >= 0 || s.values[k] !== null).slice();
         list.sort((a, b) => (a === focus ? -1 : b === focus ? 1 : (b.values[k] ?? -Infinity) - (a.values[k] ?? -Infinity)));
         for (const s of list) {
@@ -1127,7 +1597,8 @@ export class Visual implements IVisual {
         const ids: ISelectionId[] = [];
         const s = focus ?? this.drawn[0]?.s;
         if (s) { const id = this.pointId(k, s); if (id) ids.push(id); }
-        ts.show({ dataItems: this.tipItems(k, focus), identities: ids, coordinates: [px, py], isTouchEvent: false });
+        const p = this.curPanel;
+        ts.show({ dataItems: this.tipItems(k, focus), identities: ids, coordinates: [px + (p ? p.ox : 0), py + (p ? p.oy : 0)], isTouchEvent: false });
     }
 
     private hideTip(): void {
@@ -1137,26 +1608,29 @@ export class Visual implements IVisual {
     // ── Selección ────────────────────────────────────────────────────────────
 
     private seriesKey(s: Series): string { return "s␟" + (s.legend ?? ""); }
-    private pointKey(k: number, s: Series): string { return "p␟" + this.model.keys[k].key + "␟" + (this.model.legendCol ? (s.legend ?? "") : ""); }
+    /** Clave de un punto: eje × leyenda, y el panel cuando se dibujan varios. */
+    private pointKey(k: number, s: Series, m: Model = this.model): string {
+        return "p␟" + m.keys[k].key + "␟" + (m.legendCol ? (s.legend ?? "") : "") + (this.multi ? "␟" + (m.smShown ?? "") : "");
+    }
 
-    /** Serie = el valor de leyenda (filtra por esa columna). */
-    private seriesId(s: Series): ISelectionId {
-        const m = this.model;
+    /** Serie = el valor de leyenda (filtra por esa columna, en todos los paneles). */
+    private seriesId(s: Series, m: Model = this.model): ISelectionId {
         const row = s.rows.find(r => r >= 0);
         return this.host.createSelectionIdBuilder().withCategory(m.legendCol, row).createSelectionId();
     }
 
     /**
-     * Punto = eje × leyenda. Sin leyenda, solo el eje: la identidad del valor del eje cubre TODAS las filas de esa
-     * fecha (regla filtros-todas-las-filas), también las de otros paneles.
+     * Punto = eje × leyenda (× panel con small multiples dibujados). Sin leyenda, solo el eje: la identidad del valor
+     * del eje cubre TODAS las filas de esa fecha (regla filtros-todas-las-filas), también las de otros paneles cuando
+     * solo se ve uno.
      */
-    private pointId(k: number, s: Series): ISelectionId | null {
-        const m = this.model;
+    private pointId(k: number, s: Series, m: Model = this.model): ISelectionId | null {
         const row = s.rows[k];
         if (row < 0) return null;
         let b = this.host.createSelectionIdBuilder();
         for (const c of m.axisCols) b = b.withCategory(c, row);
         if (m.legendCol) b = b.withCategory(m.legendCol, row);
+        if (this.multi && m.smCol) b = b.withCategory(m.smCol, row);
         return b.createSelectionId();
     }
 
@@ -1170,39 +1644,49 @@ export class Visual implements IVisual {
         this.paintState();
     }
 
-    /** Marcadores / selección externa: se casa por equals (getKey no coincide entre clic y marcador). */
+    /** Marcadores / selección externa: se casa por equals (getKey no coincide entre clic y marcador). Solo deriva. */
     private restoreSelection(ids: ISelectionId[]): void {
-        const m = this.model;
-        if (!m) { this.pendingRestore = ids; return; }
+        if (!this.models.length) { this.pendingRestore = ids; return; }
         this.pendingRestore = null;
         this.selKeys.clear();
         if (!ids.length) return;
         const eq = (a: ISelectionId, b: ISelectionId) => { try { return a.equals(b) || b.equals(a); } catch { return false; } };
         const left = ids.slice();
-        if (m.legendCol) for (const s of m.series) {
-            const id = this.seriesId(s);
-            if (left.some(x => eq(x, id))) this.selKeys.set(this.seriesKey(s), id);
+        for (const m of this.models) {
+            if (m.legendCol) for (const s of m.series) {
+                const id = this.seriesId(s, m);
+                if (left.some(x => eq(x, id))) this.selKeys.set(this.seriesKey(s), id);
+            }
         }
         if (this.selKeys.size === ids.length) return;
-        const firsts = m.legendCol ? m.series.filter((s, i, a) => a.findIndex(o => o.legend === s.legend) === i) : m.series.slice(0, 1);
-        for (const s of firsts) for (let k = 0; k < m.keys.length; k++) {
-            const id = this.pointId(k, s);
-            if (id && left.some(x => eq(x, id))) this.selKeys.set(this.pointKey(k, s), id);
+        for (const m of this.models) {
+            const firsts = m.legendCol ? m.series.filter((s, i, a) => a.findIndex(o => o.legend === s.legend) === i) : m.series.slice(0, 1);
+            for (const s of firsts) for (let k = 0; k < m.keys.length; k++) {
+                const id = this.pointId(k, s, m);
+                if (id && left.some(x => eq(x, id))) this.selKeys.set(this.pointKey(k, s, m), id);
+            }
         }
     }
 
-    private pruneSelection(m: Model): void {
+    private pruneSelection(): void {
         if (!this.selKeys.size) return;
         const valid = new Set<string>();
-        for (const s of m.series) {
+        for (const m of this.models) for (const s of m.series) {
             valid.add(this.seriesKey(s));
-            for (let k = 0; k < m.keys.length; k++) if (s.rows[k] >= 0) valid.add(this.pointKey(k, s));
+            for (let k = 0; k < m.keys.length; k++) if (s.rows[k] >= 0) valid.add(this.pointKey(k, s, m));
         }
         for (const k of Array.from(this.selKeys.keys())) if (!valid.has(k)) this.selKeys.delete(k);
     }
 
-    /** Opacidades: resaltado al pasar, selección de serie y anillos de los puntos seleccionados. */
+    /** Opacidades y anillos en TODOS los paneles; deja activo el que lo estaba. */
     private paintState(): void {
+        if (!this.panels.length) return;
+        const keep = this.curPanel;
+        for (const p of this.panels) { this.activate(p); this.paintPanel(); }
+        this.activate(keep);
+    }
+
+    private paintPanel(): void {
         const m = this.model;
         if (!m || !this.L) return;
         const selSeries = new Set<string>();
@@ -1216,7 +1700,7 @@ export class Visual implements IVisual {
         }
         const anySeries = selSeries.size > 0;
         const anyPoint = selPoints.length > 0;
-        this.svg.selectAll<SVGGElement, unknown>(".lc-series, .lc-ref, .lc-endlabel").each((_d, i, nodes) => {
+        this.canvas.selectAll<SVGGElement, unknown>(".lc-series, .lc-ref, .lc-band, .lc-endlabel").each((_d, i, nodes) => {
             const el = nodes[i];
             const id = el.getAttribute("data-id");
             const ser = m.series.find(s => s.id === id);
@@ -1228,9 +1712,9 @@ export class Visual implements IVisual {
             }
             el.setAttribute("opacity", String(op));
         });
-        const g = this.svg.select<SVGGElement>(".lc-sel");
+        const g = this.canvas.select<SVGGElement>(".lc-sel");
         g.selectAll("*").remove();
-        const ring = this.hc ? this.hcSel : "#252423";
+        const ring = this.hc ? this.hcSel : this.ink;
         for (const [k, s] of selPoints) {
             const d = this.drawn.find(x => x.s === s);
             g.append("circle").attr("cx", this.x(m.keys[k].pos)).attr("cy", d.y(s.values[k])).attr("r", 5.5)
@@ -1266,7 +1750,8 @@ export class Visual implements IVisual {
         const v = d.s.values[k];
         const x = this.x(m.keys[k].pos), y = d.y(v);
         this.showTip(k, d.s, x, y);
-        this.live.textContent = d.s.name + ", " + this.keyLabel(k) + ": " + this.fmtFull(v, d.s.formats[k] ?? d.s.format);
+        const panel = this.multi ? (m.smShown || this.t("UI_Blank", "(Blank)")) + ", " : "";
+        this.live.textContent = panel + d.s.name + ", " + this.keyLabel(k) + ": " + this.fmtFull(v, d.s.formats[k] ?? d.s.format);
     }
 
     private onKey(e: KeyboardEvent): void {
@@ -1274,6 +1759,14 @@ export class Visual implements IVisual {
         if (!m || !this.L || !m.keys.length) return;
         const K = m.keys.length;
         let handled = true;
+        // Small multiples: Mayús + flechas izquierda/derecha cambian de panel (mismo punto del eje).
+        if (this.multi && e.shiftKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+            const i = this.panels.indexOf(this.curPanel);
+            const j = Math.max(0, Math.min(this.panels.length - 1, i + (e.key === "ArrowRight" ? 1 : -1)));
+            if (j !== i) { this.drawCross(-1); this.activate(this.panels[j]); }
+            e.preventDefault(); e.stopPropagation(); this.announce();
+            return;
+        }
         switch (e.key) {
             case "ArrowRight": this.focusKey = Math.min(K - 1, this.focusKey + 1); break;
             case "ArrowLeft": this.focusKey = Math.max(0, this.focusKey - 1); break;
@@ -1297,7 +1790,7 @@ export class Visual implements IVisual {
                 const r = (this.svg.node() as SVGSVGElement).getBoundingClientRect();
                 if (d && this.canInteract) {
                     this.selectionManager.showContextMenu(this.pointId(this.focusKey, d.s) ?? ({} as ISelectionId),
-                        { x: r.left + this.x(m.keys[this.focusKey].pos), y: r.top + d.y(d.s.values[this.focusKey]) });
+                        { x: r.left + (this.curPanel?.ox ?? 0) + this.x(m.keys[this.focusKey].pos), y: r.top + (this.curPanel?.oy ?? 0) + d.y(d.s.values[this.focusKey]) });
                 }
                 break;
             }
@@ -1459,7 +1952,7 @@ export class Visual implements IVisual {
         };
         const terminar = () => { this.guideStep = 1; this.persistir("style", { guide: false }); };
         const cab = mk("div", "lc-g-head");
-        const paso = mk("div", "", this.tf("Guide_Step", "Setup · step {0} of 2", String(this.guideStep)));
+        const paso = mk("div", "", this.tf("Guide_Step", "Setup · step {0} of 3", String(this.guideStep)));
         paso.style.color = azul;
         const cerrar = mk("button", "lc-g-close", "✕") as HTMLButtonElement;
         cerrar.type = "button";
@@ -1498,23 +1991,68 @@ export class Visual implements IVisual {
             nota.style.color = muted;
             el.appendChild(nota);
             pie.appendChild(boton(this.t("Guide_Next", "Next"), true, () => { this.guideStep = 2; this.renderGuide(W, H); }));
+        } else if (this.guideStep === 2) {
+            // Probar el Pro con sus datos: cada botón cambia UN ajuste, solo desde el clic (persistProperties).
+            titulo.textContent = this.isPro ? this.t("Guide_TryPro2", "Pro features on your data") : this.t("Guide_TryPro", "Try Pro on your data");
+            const objs: any = this.dataView?.metadata?.objects ?? {};
+            const hasRef = has("plan") || has("previousYear");
+            const estilo = PRO_STYLES.indexOf(String(objs.style?.template ?? "")) >= 0;
+            const banda = objs.references?.gapShading === true;
+            const desvio = ["pct", "abs"].indexOf(String(objs.endLabels?.variance ?? "off")) >= 0;
+            const pruebas: [string, string, boolean, boolean, () => void][] = [
+                [this.t("Guide_TryStyles", "Collection styles"), this.t("Guide_TryStylesWhy", "six looks shared with KPI Card, Pareto and the rest of TCViz"),
+                    estilo, true, () => this.persistir("style", { template: estilo ? "report" : "boardroom" })],
+                [this.t("Guide_TryGap", "Gap shading"), this.t("Guide_TryGapWhy", "green above the plan, red below, split exactly where the lines cross"),
+                    banda, hasRef, () => this.persistir("references", banda ? { gapShading: false } : { gapShading: true, show: true })],
+                [this.t("Guide_TryVariance", "Variance on the end label"), this.t("Guide_TryVarianceWhy", "the last value and how far it is from plan: −9.1% vs plan"),
+                    desvio, hasRef, () => this.persistir("endLabels", desvio ? { variance: "off" } : { variance: "pct", show: true })],
+            ];
+            for (const [nombre, porque, activa, posible, accion] of pruebas) {
+                const f = mk("div", "lc-g-try");
+                const txt = mk("span", "");
+                txt.appendChild(mk("b", "", nombre));
+                if (!this.isPro) {
+                    const chip = mk("span", "lc-g-chip", "Pro");
+                    if (hc) { chip.style.background = "transparent"; chip.style.border = "1px solid " + fg; chip.style.color = fg; }
+                    txt.appendChild(chip);
+                }
+                txt.appendChild(document.createTextNode(" — " + (posible ? porque : this.t("Guide_NeedsRef", "add Plan or Prior year first"))));
+                txt.style.color = posible ? fg : muted;
+                const b = boton(activa ? this.t("Guide_On", "On") : this.t("Guide_Try", "Try"), activa, accion);
+                b.setAttribute("aria-pressed", String(activa));
+                if (!posible) { b.disabled = true; b.style.opacity = "0.45"; b.style.cursor = "default"; }
+                f.appendChild(txt); f.appendChild(b);
+                el.appendChild(f);
+            }
+            if (!this.isPro) {
+                const nota = mk("div", "lc-g-note", this.t("Guide_TryNote", "Without a licence they show under a watermark while you edit; reading view shows the free chart."));
+                nota.style.color = muted;
+                el.appendChild(nota);
+            }
+            pie.appendChild(boton(this.t("Guide_Back", "Back"), false, () => { this.guideStep = 1; this.renderGuide(W, H); }));
+            pie.appendChild(boton(this.t("Guide_Next", "Next"), true, () => { this.guideStep = 3; this.renderGuide(W, H); }));
         } else {
             titulo.textContent = this.t("Guide_Style", "Pick a style");
             const actual = String((this.dataView?.metadata?.objects as any)?.style?.template ?? "report");
             const rejilla = mk("div", "lc-g-grid");
-            for (const [nombre, clave, def] of [["report", "Enum_template_report", "Report theme"], ["classic", "Enum_template_classic", "Classic"]]) {
+            const nombres: [string, string, string][] = [["report", "Enum_template_report", "Report theme"], ["classic", "Enum_template_classic", "Classic"],
+                ["boardroom", "Enum_template_boardroom", "Boardroom (Pro)"], ["ledger", "Enum_template_ledger", "Ledger (Pro)"],
+                ["editorial", "Enum_template_editorial", "Editorial (Pro)"], ["signal", "Enum_template_signal", "Signal (Pro)"],
+                ["aurora", "Enum_template_aurora", "Aurora (Pro)"], ["terrace", "Enum_template_terrace", "Terrace (Pro)"]];
+            for (const [nombre, clave, def] of nombres) {
                 const chip = mk("button", "lc-g-tpl") as HTMLButtonElement;
                 chip.type = "button";
                 chip.setAttribute("aria-pressed", String(nombre === actual));
                 chip.style.borderColor = nombre === actual ? azul : "#C8C6C4";
                 chip.style.borderWidth = nombre === actual ? "2px" : "1px";
                 chip.appendChild(this.miniLines(nombre, hc));
-                chip.appendChild(mk("div", "", this.t(clave, def)));
+                // Con licencia, el "(Pro)" del nombre sobra.
+                chip.appendChild(mk("div", "", this.isPro ? this.t(clave, def).replace(/\s*\(Pro\)\s*$/, "") : this.t(clave, def)));
                 chip.addEventListener("click", () => this.persistir("style", { template: nombre }));
                 rejilla.appendChild(chip);
             }
             el.appendChild(rejilla);
-            pie.appendChild(boton(this.t("Guide_Back", "Back"), false, () => { this.guideStep = 1; this.renderGuide(W, H); }));
+            pie.appendChild(boton(this.t("Guide_Back", "Back"), false, () => { this.guideStep = 2; this.renderGuide(W, H); }));
             pie.appendChild(boton(this.t("Guide_Finish", "Finish"), true, terminar));
         }
         el.appendChild(pie);
@@ -1525,7 +2063,9 @@ export class Visual implements IVisual {
         const svg = document.createElementNS(NS, "svg") as SVGSVGElement;
         svg.setAttribute("width", "64"); svg.setAttribute("height", "36"); svg.setAttribute("aria-hidden", "true");
         const pal: any = this.host.colorPalette;
-        const cols = nombre === "classic" ? CLASSIC.slice(0, 3)
+        const tok = STYLE_TOKENS[nombre];
+        if (tok && !hc) svg.style.background = tok.grad ?? tok.bg;
+        const cols = tok ? [tok.series[0], tok.plan, tok.series[1]] : nombre === "classic" ? CLASSIC.slice(0, 3)
             : [0, 1, 2].map(i => pal?.getColor?.("tcviz-mini-" + i)?.value ?? CLASSIC[i]);
         ["4,28 18,22 30,25 44,12 60,9", "4,32 18,30 30,20 44,22 60,18", "4,20 18,14 30,16 44,26 60,28"].forEach((pts, i) => {
             const p = document.createElementNS(NS, "polyline");
@@ -1574,9 +2114,7 @@ export class Visual implements IVisual {
             options: { minValue: p.min !== undefined ? { type: 0, value: p.min } : undefined, maxValue: p.max !== undefined ? { type: 1, value: p.max } : undefined } } } } as any;
         if (p.type === "fill") return { ...base, control: { type: "ColorPicker" as any, properties: { descriptor, value: { value: String(value) } } } } as any;
         if (p.type === "enum") {
-            let items = (p.items ?? []).map(([v, k, l]) => ({ value: v, displayName: this.t(k, l) }));
-            // Bloque 1: los seis estilos Pro están declarados en capabilities pero no se ofrecen hasta el bloque 2.
-            if (obj === "style" && p.name === "template") items = items.filter(it => PRO_STYLES.indexOf(String(it.value)) < 0 || it.value === value);
+            const items = (p.items ?? []).map(([v, k, l]) => ({ value: v, displayName: this.t(k, l) }));
             const cur = items.find(it => it.value === value) ?? items[0];
             return { ...base, control: { type: "Dropdown" as any, properties: { descriptor, value: cur, items } } } as any;
         }
@@ -1590,6 +2128,8 @@ export class Visual implements IVisual {
             const revert: powerbi.visuals.FormattingDescriptor[] = [];
             const groups: powerbi.visuals.FormattingGroup[] = [];
             let cardToggle: any;
+            // Small multiples: la tarjeta aparece con el campo puesto (como el nativo).
+            if (c.uid === "smallMultiples" && !this.model?.smCol) continue;
             for (const g of c.groups) {
                 if (g.obj === "y2Axis" && !hasY2) continue;
                 const spec = OBJECTS[g.obj];
@@ -1604,11 +2144,51 @@ export class Visual implements IVisual {
                 }
                 groups.push(grp);
             }
+            if (c.uid === "lines") {
+                const colors = this.colorSlices();
+                if (colors.length) {
+                    groups.push({ uid: "lines-dataColors-group", displayName: this.t("Grp_dataColors", "Colors"), slices: colors } as any);
+                    colors.forEach((sl: any) => revert.push(sl.control.properties.descriptor));
+                }
+            }
             const card: any = { uid: c.uid + "-card", displayName: this.t(c.key, c.label), groups, revertToDefaultDescriptors: revert };
             if (cardToggle) card.topLevelToggle = cardToggle;
             cards.push(card);
         }
         return { cards };
+    }
+
+    /**
+     * Color por serie (gratis, como el nativo). Sin leyenda: uno por medida (selector metadata, se guarda en la columna).
+     * Con leyenda: uno por valor de leyenda (selector de categoría, como Risk Matrix), que pinta la serie de la PRIMERA
+     * medida de ese valor; las demás medidas siguen el automático. Límite: no hay color por medida × leyenda, porque los
+     * values van sin group (el mapeo validado) y no existe una identidad para esa combinación.
+     */
+    private colorSlices(): powerbi.visuals.FormattingSlice[] {
+        const m = this.models[0];
+        if (!m || this.hc) return [];
+        const colorOf = (pred: (s: Series) => boolean) => this.allSeries.find(pred)?.color ?? "#118DFF";
+        const out: any[] = [];
+        if (m.legendCol) {
+            const firstMeasure = this.allSeries[0]?.measure;
+            m.legendValues.slice(0, 40).forEach((lv, i) => {
+                const selector = (this.host.createSelectionIdBuilder().withCategory(m.legendCol, lv.row).createSelectionId() as any).getSelector?.();
+                out.push({ uid: "dataColors-legend-" + i, displayName: lv.name, control: { type: "ColorPicker", properties: {
+                    descriptor: { objectName: "dataColors", propertyName: "fill", selector },
+                    value: { value: colorOf(s => s.legend === lv.name && s.measure === firstMeasure) } } } });
+            });
+        } else {
+            const seen = new Set<string>();
+            for (const c of (this.dataView?.categorical?.values ?? []) as any[]) {
+                const src = c.source;
+                if (!src || !(src.roles?.values || src.roles?.secondaryValues) || seen.has(src.queryName)) continue;
+                seen.add(src.queryName);
+                out.push({ uid: "dataColors-measure-" + seen.size, displayName: src.displayName, control: { type: "ColorPicker", properties: {
+                    descriptor: { objectName: "dataColors", propertyName: "fill", selector: { metadata: src.queryName } },
+                    value: { value: colorOf(s => s.measure === src.displayName) } } } });
+            }
+        }
+        return out as powerbi.visuals.FormattingSlice[];
     }
 
     // ── Formato desde el lienzo (on-object) ──────────────────────────────────
@@ -1635,6 +2215,8 @@ export class Visual implements IVisual {
         };
         marcar(".lc-series", "lines", 3);
         marcar(".lc-ref", "references", 3);
+        marcar(".lc-band", "references", 3);
+        marcar(".lc-sm-title", "smallMultiples", 1);
         marcar(".lc-endlabel", "endLabels", 1);
         marcar(".lc-x", "xAxis", 1);
         marcar(".lc-y", "yAxis", 1);
@@ -1653,6 +2235,7 @@ export class Visual implements IVisual {
             case "yAxis": return { type: 1, fontSize: ref("yAxis", "fontSize"), fontColor: ref("yAxis", "color") } as any;
             case "y2Axis": return { type: 1, fontSize: ref("y2Axis", "fontSize") } as any;
             case "legend": return { type: 1, fontSize: ref("legend", "fontSize"), fontColor: ref("legend", "color") } as any;
+            case "smallMultiples": return { type: 1, fontSize: ref("smallMultiples", "titleFontSize"), fontColor: ref("smallMultiples", "titleColor") } as any;
         }
         return undefined;
     }
@@ -1668,7 +2251,8 @@ export class Visual implements IVisual {
         const div = { type: 7 };
         switch (name) {
             case "lines": return [{ type: 3, ...id("lines", "missing"), label: this.propLabel("lines", "missing") }, div, reset("lines"), nav("lines", "lines")] as any;
-            case "references": return [toggle("references", "show"), toggle("references", "legend"), div, reset("references"), nav("references", "references")] as any;
+            case "references": return [toggle("references", "show"), toggle("references", "legend"), toggle("references", "gapShading"), div, reset("references"), nav("references", "references")] as any;
+            case "smallMultiples": return [toggle("smallMultiples", "titleBold"), toggle("smallMultiples", "border"), toggle("smallMultiples", "sharedY"), div, reset("smallMultiples"), nav("smallMultiples", "smallMultiples")] as any;
             case "endLabels": return [toggle("endLabels", "show"), toggle("endLabels", "seriesColor"), div, reset("endLabels"), nav("endLabels", "endLabels")] as any;
             case "xAxis": case "yAxis": case "y2Axis": return [toggle(name, "show"), toggle(name, "title"), div, reset(name), nav(name, "axes")] as any;
             case "legend": return [{ type: 3, ...id("legend", "position"), label: this.propLabel("legend", "position") }, toggle("legend", "show"), div, reset("legend"), nav("legend", "legend")] as any;
@@ -1677,6 +2261,8 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
+        // Un temporizador vivo sobre un visual retirado lanzaría un aviso de compra sin visual.
+        this.cancelLicenseIcon();
         this.hideTip();
         this.root.remove();
     }
