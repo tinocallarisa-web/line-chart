@@ -1,5 +1,9 @@
 # Line Chart — prueba del mapeo de datos en Desktop
 
+> **Histórico (09-11-2026).** El visual de diagnóstico se sustituyó por el bloque 1 (commit 39c4e26). El mapeo
+> que se validó con esta prueba es el que usa el visual: categories [axis, smallMultiple, legend] con window 30.000
+> y values sin group. Para volver a ver el diagnóstico: `git show 7f38c74:src/visual.ts`.
+
 Esto **no es el visual**: es un diagnóstico que escribe en pantalla lo que Power BI le entrega.
 Sirve para decidir el día 1 si el mapeo `categories [axis, smallMultiple]` + `values group by legend`
 aguanta antes de dibujar nada.

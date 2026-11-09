@@ -59,13 +59,11 @@ const stamp = (free ? "testfree " : "test ") + d.getFullYear() + "-" + pad(d.get
     " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + " v" + json.visual.version;
 vsrc = vsrc.replace(STAMP, 'const TEST_STAMP = "' + stamp + '"; // PATCHED BY build-test.js');
 
-// Licencia: aún no existe en el esqueleto. Cuando exista "    private isPro = false;", se fuerza en _test.
-const FIND = "    private isPro = false;";
-if (!free && vsrc.indexOf(FIND) !== -1) {
-    vsrc = vsrc.replace(FIND, "    private isPro = true; // PATCHED BY build-test.js");
-} else if (!free) {
-    console.log("  (sin bloque de licencia en visual.ts: esqueleto de diagnóstico)");
-}
+// Licencia: _test fuerza Pro (ISPRO_MARKER); _testfree deja que el licenseManager resuelva (sin plan para el GUID de
+// test, sale Free de verdad). El bloque 1 no tiene funciones Pro: el forzado se nota a partir del bloque 2.
+const FIND = "    private isPro = false; // ISPRO_MARKER";
+if (vsrc.indexOf(FIND) === -1) { console.error("ERROR: no encuentro la línea ISPRO_MARKER en visual.ts: actualiza build-test.js."); process.exit(1); }
+if (!free) vsrc = vsrc.replace(FIND, "    private isPro = true; // ISPRO_MARKER PATCHED BY build-test.js");
 fs.writeFileSync(VISUAL, vsrc, "utf8");
 
 console.log("Build TEST — " + json.visual.displayName + "  guid " + json.visual.guid + "  v" + json.visual.version + "  [" + stamp + "]");
