@@ -31,6 +31,9 @@ OBJECTS = [
          {"items": [("break", "Break the line"), ("connect", "Connect the points"), ("zero", "Treat as zero")]}),
         # Fase OKviz (FT.LINE02): curva monótona, nunca se pasa de los datos.
         ("smooth", "Smooth lines", "bool", False, {}),
+        # Fase 3 (Pro): mostrar como índice, % de cambio o acumulado, sobre los puntos visibles.
+        ("valueMode", "Show values as (Pro)", "enum", "value", {"items": [("value", "Value"), ("index", "Index (first = 100)"),
+                                                                          ("pctChange", "% change vs first"), ("runningTotal", "Running total")]}),
     ]),
     ("endLabels", "End labels", [
         ("show", "Show end labels", "bool", True, {}),
@@ -55,6 +58,8 @@ OBJECTS = [
         ("aboveColor", "Above the reference", "fill", "#2E7D32", {}),
         ("belowColor", "Below the reference", "fill", "#C62828", {}),
         ("gapOpacity", "Shading opacity (%)", "num", 18, {"min": 5, "max": 30}),
+        # Fase 3: el plan o la previsión que siguen tras el último real, en el color de la serie y con la marca Actual | Plan.
+        ("actualSplit", "Split actual and plan", "bool", True, {}),
     ]),
     # Línea de objetivo (gratis): rol targetLine; plana si el valor no cambia, en escalones si cambia por periodo.
     ("targetLine", "Target line", [
@@ -73,6 +78,13 @@ OBJECTS = [
         ("scope", "Apply to", "enum", "all", {"items": [("all", "All series"), ("first", "First series only")]}),
         ("width", "Line width", "num", 1.5, {"min": 0.5, "max": 6}),
         ("opacity", "Opacity (%)", "num", 70, {"min": 20, "max": 100}),
+    ]),
+    # Máximo y mínimo (gratis, fase 3).
+    ("peaks", "Peaks & lows", [
+        ("show", "Show peaks & lows", "bool", False, {}),
+        ("mode", "Mark", "enum", "both", {"items": [("both", "Maximum and minimum"), ("max", "Maximum"), ("min", "Minimum")]}),
+        ("scope", "Apply to", "enum", "first", {"items": [("first", "First series only"), ("all", "All series")]}),
+        ("fontSize", "Text size", "num", 9, {"min": 7, "max": 18}),
     ]),
     # Eventos (Pro): rol events, texto; línea vertical + etiqueta con anticolisión.
     ("events", "Events (Pro)", [
@@ -169,6 +181,7 @@ PANE = [
     ("references", "Plan, prior year and forecast", [("references", None, "show")]),
     ("targetLine", "Target line", [("targetLine", None, "show")]),
     ("trendLine", "Trend line", [("trendLine", None, "show")]),
+    ("peaks", "Peaks & lows", [("peaks", None, "show")]),
     ("axes", "Axes", [("xAxis", "X axis", "show"), ("yAxis", "Y axis", "show"), ("y2Axis", "Secondary Y axis", "show")]),
     ("legend", "Legend", [("legend", None, "show")]),
     ("smallMultiples", "Small multiples (Pro)", [("smallMultiples", None, None)]),

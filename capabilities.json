@@ -238,6 +238,34 @@
           "type": {
             "bool": true
           }
+        },
+        "valueMode": {
+          "displayName": "Show values as (Pro)",
+          "displayNameKey": "Prop_lines_valueMode",
+          "type": {
+            "enumeration": [
+              {
+                "value": "value",
+                "displayName": "Value",
+                "displayNameKey": "Enum_valueMode_value"
+              },
+              {
+                "value": "index",
+                "displayName": "Index (first = 100)",
+                "displayNameKey": "Enum_valueMode_index"
+              },
+              {
+                "value": "pctChange",
+                "displayName": "% change vs first",
+                "displayNameKey": "Enum_valueMode_pctChange"
+              },
+              {
+                "value": "runningTotal",
+                "displayName": "Running total",
+                "displayNameKey": "Enum_valueMode_runningTotal"
+              }
+            ]
+          }
         }
       }
     },
@@ -421,6 +449,13 @@
           "type": {
             "numeric": true
           }
+        },
+        "actualSplit": {
+          "displayName": "Split actual and plan",
+          "displayNameKey": "Prop_references_actualSplit",
+          "type": {
+            "bool": true
+          }
         }
       }
     },
@@ -556,6 +591,67 @@
         "opacity": {
           "displayName": "Opacity (%)",
           "displayNameKey": "Prop_trendLine_opacity",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
+    },
+    "peaks": {
+      "displayName": "Peaks & lows",
+      "displayNameKey": "Obj_peaks",
+      "properties": {
+        "show": {
+          "displayName": "Show peaks & lows",
+          "displayNameKey": "Prop_peaks_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "mode": {
+          "displayName": "Mark",
+          "displayNameKey": "Prop_peaks_mode",
+          "type": {
+            "enumeration": [
+              {
+                "value": "both",
+                "displayName": "Maximum and minimum",
+                "displayNameKey": "Enum_mode_both"
+              },
+              {
+                "value": "max",
+                "displayName": "Maximum",
+                "displayNameKey": "Enum_mode_max"
+              },
+              {
+                "value": "min",
+                "displayName": "Minimum",
+                "displayNameKey": "Enum_mode_min"
+              }
+            ]
+          }
+        },
+        "scope": {
+          "displayName": "Apply to",
+          "displayNameKey": "Prop_peaks_scope",
+          "type": {
+            "enumeration": [
+              {
+                "value": "first",
+                "displayName": "First series only",
+                "displayNameKey": "Enum_scope_first"
+              },
+              {
+                "value": "all",
+                "displayName": "All series",
+                "displayNameKey": "Enum_scope_all"
+              }
+            ]
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Prop_peaks_fontSize",
           "type": {
             "numeric": true
           }

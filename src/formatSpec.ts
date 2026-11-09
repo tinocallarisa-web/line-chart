@@ -149,6 +149,35 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "def": false,
                 "key": "Prop_lines_smooth",
                 "label": "Smooth lines"
+            },
+            {
+                "name": "valueMode",
+                "type": "enum",
+                "def": "value",
+                "key": "Prop_lines_valueMode",
+                "label": "Show values as (Pro)",
+                "items": [
+                    [
+                        "value",
+                        "Enum_valueMode_value",
+                        "Value"
+                    ],
+                    [
+                        "index",
+                        "Enum_valueMode_index",
+                        "Index (first = 100)"
+                    ],
+                    [
+                        "pctChange",
+                        "Enum_valueMode_pctChange",
+                        "% change vs first"
+                    ],
+                    [
+                        "runningTotal",
+                        "Enum_valueMode_runningTotal",
+                        "Running total"
+                    ]
+                ]
             }
         ]
     },
@@ -329,6 +358,13 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "label": "Shading opacity (%)",
                 "min": 5,
                 "max": 30
+            },
+            {
+                "name": "actualSplit",
+                "type": "bool",
+                "def": true,
+                "key": "Prop_references_actualSplit",
+                "label": "Split actual and plan"
             }
         ]
     },
@@ -478,6 +514,72 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "label": "Opacity (%)",
                 "min": 20,
                 "max": 100
+            }
+        ]
+    },
+    "peaks": {
+        "name": "peaks",
+        "key": "Obj_peaks",
+        "label": "Peaks & lows",
+        "props": [
+            {
+                "name": "show",
+                "type": "bool",
+                "def": false,
+                "key": "Prop_peaks_show",
+                "label": "Show peaks & lows"
+            },
+            {
+                "name": "mode",
+                "type": "enum",
+                "def": "both",
+                "key": "Prop_peaks_mode",
+                "label": "Mark",
+                "items": [
+                    [
+                        "both",
+                        "Enum_mode_both",
+                        "Maximum and minimum"
+                    ],
+                    [
+                        "max",
+                        "Enum_mode_max",
+                        "Maximum"
+                    ],
+                    [
+                        "min",
+                        "Enum_mode_min",
+                        "Minimum"
+                    ]
+                ]
+            },
+            {
+                "name": "scope",
+                "type": "enum",
+                "def": "first",
+                "key": "Prop_peaks_scope",
+                "label": "Apply to",
+                "items": [
+                    [
+                        "first",
+                        "Enum_scope_first",
+                        "First series only"
+                    ],
+                    [
+                        "all",
+                        "Enum_scope_all",
+                        "All series"
+                    ]
+                ]
+            },
+            {
+                "name": "fontSize",
+                "type": "num",
+                "def": 9,
+                "key": "Prop_peaks_fontSize",
+                "label": "Text size",
+                "min": 7,
+                "max": 18
             }
         ]
     },
@@ -1158,6 +1260,17 @@ export const PANE: CardSpec[] = [
         "groups": [
             {
                 "obj": "trendLine",
+                "toggle": "show"
+            }
+        ]
+    },
+    {
+        "uid": "peaks",
+        "key": "Obj_peaks",
+        "label": "Peaks & lows",
+        "groups": [
+            {
+                "obj": "peaks",
                 "toggle": "show"
             }
         ]

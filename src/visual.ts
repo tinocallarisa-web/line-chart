@@ -126,6 +126,8 @@ function reportTemplate(host: IVisualHost): Settings {
 }
 
 let hatchCounter = 0;
+/** Mostrar valores como (Pro): el primero es el valor tal cual. */
+const VALUE_MODES = ["value", "index", "pctChange", "runningTotal"];
 /** Sin licencia, la vista previa de small multiples dibuja como mucho estos paneles. */
 const PREVIEW_PANELS = 4;
 
@@ -138,6 +140,8 @@ interface Layout {
     legend: boolean; legendRows: LegendItem[][]; legendH: number;
     labels: boolean; labelW: number; y1W: number; y2W: number;
     noticeH: number;
+    /** Eje de fechas en dos filas (mes; año solo al empezar cada año): alto extra de la 2.ª fila. */
+    xExtra: number;
     /** Franja de zoom (mini-mapa con brush) bajo el eje X: alto reservado y su y. */
     brushH: number; brushY: number;
 }
@@ -232,6 +236,8 @@ export class Visual implements IVisual {
     private visLo = 0;
     private visHi = -1;
     private resetEl: HTMLButtonElement;
+    /** Mostrar valores como (Pro) en este render: "value" sin licencia ni vista previa. */
+    private valueMode = "value";
     private clipCounter = 0;
     private canvasCtx: CanvasRenderingContext2D | null = null;
 
@@ -293,6 +299,13 @@ export class Visual implements IVisual {
         node.addEventListener("keydown", (e: KeyboardEvent) => this.onKey(e));
         node.addEventListener("focus", () => { this.hasFocus = true; this.onFocus(); });
         node.addEventListener("blur", () => { this.hasFocus = false; this.hideTip(); this.drawCross(-1); });
+        // Clic derecho en el fondo (márgenes, ejes, leyenda): el menú de Power BI sin punto. El área del gráfico lo
+        // resuelve su capa (onContext) y para la propagación.
+        node.addEventListener("contextmenu", (e: MouseEvent) => {
+            e.preventDefault();
+            if (!this.canInteract) return;
+            this.selectionManager.showContextMenu({} as ISelectionId, { x: e.clientX, y: e.clientY });
+        });
     }
 
     // ── Textos y formato ─────────────────────────────────────────────────────
@@ -457,12 +470,14 @@ export class Visual implements IVisual {
         const hasAn = cols.some(c => !!c.roles?.annotations) && objs.annotations?.show !== false;
         const tpl = String(objs.style?.template ?? "");
         const variance = String(objs.endLabels?.variance ?? "off");
+        const vmode = String(objs.lines?.valueMode ?? "value");
         const groups: [string, boolean, string][] = [
             ["style templates", PRO_STYLES.indexOf(tpl) >= 0, "style=" + tpl],
             ["gap shading", objs.references?.gapShading === true && objs.references?.show !== false && hasRef, "gap=" + (objs.references?.gapShading === true)],
             ["variance label", (variance === "pct" || variance === "abs") && objs.endLabels?.show !== false && hasRef, "var=" + variance],
             ["small multiples", hasSm, "sm=" + hasSm],
             ["events", hasEv, "ev=" + hasEv],
+            ["show values as", vmode !== "value" && VALUE_MODES.indexOf(vmode) > 0, "vm=" + vmode],
             ["annotations", hasAn, "an=" + hasAn],
         ];
         const labels: string[] = [];
@@ -489,6 +504,7 @@ export class Visual implements IVisual {
             case "variance label": return this.t("Feat_variance", "variance label");
             case "small multiples": return this.t("Feat_panels", "small multiples");
             case "events": return this.t("Feat_events", "events");
+            case "show values as": return this.t("Feat_valueMode", "show values as");
             case "annotations": return this.t("Feat_annotations", "annotations");
             default: return id;
         }
@@ -672,6 +688,9 @@ export class Visual implements IVisual {
         const m = this.model;
         this.zoomEff = m ? this.effectiveZoom(m) : null;
         this.updateResetButton();
+        this.valueMode = this.previewOf("show values as") ? String(this.settings.lines.valueMode) : "value";
+        if (VALUE_MODES.indexOf(this.valueMode) < 0) this.valueMode = "value";
+        if (this.valueMode !== "value") for (const pm of this.models) this.transformValues(pm);
         if (!m) {
             this.renderLanding(W, H);
             this.renderGuide(W, H);
@@ -720,6 +739,57 @@ export class Visual implements IVisual {
     }
 
     private int(n: number): string { return this.formatter("#,0").format(n); }
+
+    // ── Mostrar valores como (Pro) ───────────────────────────────────────────
+
+    /**
+     * Índice (primer punto visible = 100), % de cambio contra el primero visible o acumulado desde el primero visible.
+     * Por serie y sobre los puntos visibles (con zoom, la base es el primero de la ventana); los vacíos siguen vacíos
+     * (un hueco no se rellena). Plan y año anterior se expresan contra la MISMA base que su serie, para que la
+     * comparación siga siendo la misma; en acumulado, cada uno se acumula por su cuenta. El objetivo no se dibuja en
+     * estos modos (un objetivo absoluto no tiene índice honesto).
+     */
+    private transformValues(m: Model): void {
+        const mode = this.valueMode;
+        const z = this.zoomEff;
+        const K = m.keys.length;
+        let lo = 0, hi = K - 1;
+        if (z) {
+            while (lo < hi && m.keys[lo].pos < z[0] - 1e-6) lo++;
+            while (hi > lo && m.keys[hi].pos > z[1] + 1e-6) hi--;
+        }
+        const fmt = mode === "pctChange" ? "0.0%" : mode === "index" ? "#,0.0" : undefined;
+        const rel = (a: (number | null)[], base: number | null) => a.map(v => {
+            if (v === null || base === null || base === 0) return null;
+            return mode === "index" ? (v / base) * 100 : v / base - 1;
+        });
+        const run = (a: (number | null)[]) => {
+            let acc = 0;
+            return a.map((v, k) => { if (k < lo || k > hi || v === null) return null; acc += v; return acc; });
+        };
+        for (const s of m.series) {
+            let base: number | null = null;
+            for (let k = lo; k <= hi; k++) if (s.values[k] !== null) { base = s.values[k]; break; }
+            const tr = (a: (number | null)[]) => (mode === "runningTotal" ? run(a) : rel(a, base));
+            s.values = tr(s.values);
+            if (s.highlights) s.highlights = tr(s.highlights);
+            for (const r of s.refs) {
+                r.values = tr(r.values);
+                if (fmt) { r.format = fmt; r.formats = r.formats.map(() => undefined); }
+            }
+            if (fmt) { s.format = fmt; s.formats = s.formats.map(() => undefined); }
+            s.lastIndex = -1;
+            for (let k = K - 1; k >= 0; k--) if (s.values[k] !== null) { s.lastIndex = k; break; }
+        }
+        m.target = null;
+    }
+
+    /** Nombre del modo, para el título del eje Y y el tooltip. */
+    private valueModeName(): string {
+        const p = OBJECTS.lines.props.find(x => x.name === "valueMode");
+        const it = p?.items?.find(i => i[0] === this.valueMode);
+        return it ? this.t(it[1], it[2]) : this.valueMode;
+    }
 
     // ── Orden y zoom ─────────────────────────────────────────────────────────
 
@@ -1237,9 +1307,11 @@ export class Visual implements IVisual {
 
         // Objetivo (gratis) sobre las referencias; eventos (Pro) detrás de las líneas; anotaciones (Pro) encima de todo.
         const evBoxes: Box[] = [];
+        if (refsOn && mode === "full") this.drawActualSplit(gEvents, L, evBoxes);
         if (mode !== "spark" && s.targetLine.show && m.target) this.drawTarget(gTarget, L, evBoxes);
         if (mode !== "spark" && this.eventsOn()) this.drawEvents(gEvents, L, evBoxes);
         if (mode === "full" && this.notesOn()) this.drawAnnotations(L, yOf, evBoxes);
+        if (mode === "full" && s.peaks.show) this.drawPeaks(L, yOf, evBoxes);
 
         if (L.labels) this.drawEndLabels(L, yOf);
         if (L.legend) this.drawLegend(L);
@@ -1296,7 +1368,7 @@ export class Visual implements IVisual {
         const L: Layout = {
             mode, W, H, left: 4, right: 4, top: 4, bottom: 4, plotW: 0, plotH: 0,
             xAxis: false, yAxis: false, y2Axis: false, xTitle: false, yTitle: false, y2Title: false,
-            legend: false, legendRows: [], legendH: 0, labels: false, labelW: 0, y1W: 0, y2W: 0, noticeH: 0, brushH: 0, brushY: 0,
+            legend: false, legendRows: [], legendH: 0, labels: false, labelW: 0, y1W: 0, y2W: 0, noticeH: 0, brushH: 0, brushY: 0, xExtra: 0,
         };
         if (mode === "spark") {
             const s0 = m.series[0];
@@ -1353,12 +1425,14 @@ export class Visual implements IVisual {
             const cap = cands.some(c => c.vari) ? 0.38 : 0.3;
             if (lab > 0) { L.labels = true; L.labelW = Math.min(lab + 16, W * cap); }
         }
+        // Eje de fechas por debajo de un año: dos filas (mes o día arriba, año abajo solo cuando empieza).
+        L.xExtra = m.isTime && m.cadence < 300 * 86400000 ? xfs + 2 : 0;
         // Franja de zoom: un panel, con sitio y con zoom permitido (no en small multiples: Ctrl+rueda y teclado).
         L.brushH = !inPanel && this.zoomable && m.keys.length >= 3 && H >= 240 && W >= 320 ? 16 : 0;
         const compute = () => {
             L.top = 6 + (L.legend && s.legend.position === "top" ? L.legendH : 0);
             L.bottom = 4 + L.noticeH + (L.legend && s.legend.position === "bottom" ? L.legendH : 0) +
-                (L.xAxis ? xfs + 8 : 0) + (L.xTitle ? xfs + 8 : 0) + L.brushH;
+                (L.xAxis ? xfs + 8 + L.xExtra : 0) + (L.xTitle ? xfs + 8 : 0) + L.brushH;
             L.left = 6 + (L.yAxis ? L.y1W : 0) + (L.yTitle ? yfs + 8 : 0);
             L.right = 8 + (L.labels ? L.labelW : 0) + (L.y2Axis ? L.y2W : 0) + (L.y2Title ? y2fs + 8 : 0);
             L.plotW = W - L.left - L.right;
@@ -1380,7 +1454,7 @@ export class Visual implements IVisual {
         }
         L.plotW = Math.max(1, L.plotW);
         L.plotH = Math.max(1, L.plotH);
-        L.brushY = L.top + L.plotH + (L.xAxis ? xfs + 8 : 0) + (L.xTitle ? xfs + 8 : 0) + 3;
+        L.brushY = L.top + L.plotH + (L.xAxis ? xfs + 8 + L.xExtra : 0) + (L.xTitle ? xfs + 8 : 0) + 3;
         return L;
     }
 
@@ -1389,15 +1463,17 @@ export class Visual implements IVisual {
     private drawTimeAxis(sx: d3.ScaleTime<number, number>, L: Layout): void {
         const s = this.settings, m = this.model;
         const fs = Number(s.xAxis.fontSize);
-        const count = Math.max(2, Math.floor(L.plotW / 90));
+        const two = L.xExtra > 0;
+        const count = Math.max(2, Math.floor(L.plotW / (two ? 64 : 90)));
         let ticks = sx.ticks(count);
         const step = ticks.length > 1 ? ticks[1].getTime() - ticks[0].getTime() : m.cadence;
         const day = 86400000;
         // Granularidad: nunca más fina que la cadencia de los datos (un eje mensual no enseña días).
         const unit = Math.max(step, m.cadence);
         const opts: Intl.DateTimeFormatOptions = unit >= 300 * day ? { year: "numeric" }
-            : unit >= 27 * day ? { month: "short", year: "numeric" }
+            : unit >= 27 * day ? (two ? { month: "short" } : { month: "short", year: "numeric" })
             : { day: "numeric", month: "short" };
+        let lastYear = NaN;
         if (m.cadence >= 27 * day) ticks = ticks.filter(t => t.getDate() === 1);
         const g = this.canvas.append("g").attr("class", "lc-x lc-axis");
         const y = L.top + L.plotH;
@@ -1411,6 +1487,12 @@ export class Visual implements IVisual {
             lastRight = x + w / 2;
             g.append("line").attr("x1", x).attr("x2", x).attr("y1", y).attr("y2", y + 4).attr("stroke", this.hc ? this.hcFg : String(s.yAxis.gridColor));
             g.append("text").attr("x", x).attr("y", y + 5 + fs * 0.8).attr("text-anchor", "middle").style("font-size", fs + "px").attr("fill", color).text(label);
+            // El año, en la 2.ª fila, solo en la primera marca y cuando cambia (enero o el primer periodo de cada año).
+            if (two && unit < 300 * day && tk.getFullYear() !== lastYear) {
+                lastYear = tk.getFullYear();
+                g.append("text").attr("class", "lc-x-year").attr("x", x).attr("y", y + 5 + fs * 0.8 + fs + 2).attr("text-anchor", "middle")
+                    .style("font-size", fs + "px").style("font-weight", "600").attr("fill", color).text(String(lastYear));
+            }
         }
         this.drawXTitle(L, g);
     }
@@ -1440,7 +1522,7 @@ export class Visual implements IVisual {
     private drawXTitle(L: Layout, g: Sel<SVGGElement> | d3.Selection<SVGGElement, unknown, null, undefined>): void {
         if (!L.xTitle) return;
         const fs = Number(this.settings.xAxis.fontSize);
-        g.append("text").attr("class", "lc-axis-title").attr("x", L.left + L.plotW / 2).attr("y", L.top + L.plotH + fs * 2 + 12)
+        g.append("text").attr("class", "lc-axis-title").attr("x", L.left + L.plotW / 2).attr("y", L.top + L.plotH + fs * 2 + 12 + L.xExtra)
             .attr("text-anchor", "middle").style("font-size", fs + "px").style("font-weight", "600").attr("fill", this.axisColor("xAxis"))
             .text(this.fit(this.model.axisName, fs, L.plotW));
     }
@@ -1464,7 +1546,8 @@ export class Visual implements IVisual {
                 .style("font-size", fs1 + "px").attr("fill", this.axisColor("yAxis")).text(tf1(tk));
         }
         if (L.yTitle) {
-            const names = Array.from(new Set(m.series.filter(x => x.role === primRole).map(x => x.measure))).join(", ");
+            let names = Array.from(new Set(m.series.filter(x => x.role === primRole).map(x => x.measure))).join(", ");
+            if (this.valueMode !== "value") names += " · " + this.valueModeName();
             const x = 6 + fs1 * 0.8;
             g1.append("text").attr("class", "lc-axis-title").attr("transform", `translate(${x},${L.top + L.plotH / 2}) rotate(-90)`)
                 .attr("text-anchor", "middle").style("font-size", fs1 + "px").style("font-weight", "600").attr("fill", this.axisColor("yAxis"))
@@ -1528,6 +1611,12 @@ export class Visual implements IVisual {
         return String(s.references.color);
     }
 
+    /** ¿Sigue esta referencia (plan o previsión) después del último real de su serie? */
+    private continuesAfterActual(ser: Series, r: RefLine): boolean {
+        return !!this.settings.references.actualSplit && (r.kind === "plan" || r.kind === "forecast") && ser.lastIndex >= 0 &&
+            r.values.some((v, k) => v !== null && k > ser.lastIndex);
+    }
+
     /** Plan, año anterior y previsión: líneas finas discontinuas, grises (o del color de su serie). */
     private drawRefs(g: Sel<SVGGElement>, ser: Series, y: d3.ScaleLinear<number, number>): void {
         const s = this.settings;
@@ -1535,8 +1624,40 @@ export class Visual implements IVisual {
         const line = d3.line<Pt>().x(p => this.x(p.pos)).y(p => y(p.v));
         for (const r of ser.refs) {
             const color = this.refColor(r.kind, ser);
-            const segs = this.refSegments(ser, r);
+            let segs = this.refSegments(ser, r);
             const gg = g.append("g").attr("class", "lc-ref").attr("data-id", ser.id).attr("data-kind", r.kind);
+            // Actual → Plan: tras el último real, el plan (o la previsión) sigue en el color de SU serie, discontinuo:
+            // es lo que viene, no una referencia contra la que medir.
+            if (this.continuesAfterActual(ser, r)) {
+                const cut = this.model.keys[ser.lastIndex].pos;
+                const before: Pt[][] = [], after: Pt[][] = [];
+                for (const seg of segs) {
+                    const b = seg.filter(p => p.pos <= cut + 1e-6), a = seg.filter(p => p.pos >= cut - 1e-6);
+                    if (b.length > 1 || (b.length === 1 && b[0].pos < cut - 1e-6)) before.push(b);
+                    if (a.length) after.push(a);
+                }
+                segs = before;
+                const fc = this.hc ? this.hcFg : ser.color;
+                for (const seg of after) {
+                    if (seg.length > 1) gg.append("path").attr("class", "lc-ref-next").attr("d", line(seg)).attr("fill", "none").attr("stroke", fc)
+                        .attr("stroke-width", Math.max(1.5, width)).attr("stroke-dasharray", REF_DASH[r.kind]).attr("stroke-linecap", "round");
+                    else gg.append("circle").attr("cx", this.x(seg[0].pos)).attr("cy", y(seg[0].v)).attr("r", 2).attr("fill", fc);
+                }
+                // Rótulo en el último punto del plan, con su valor.
+                const L = this.L;
+                let lk = -1;
+                for (let k = Math.min(r.values.length - 1, this.visHi); k > ser.lastIndex; k--) if (r.values[k] !== null) { lk = k; break; }
+                if (L && L.mode === "full" && lk >= 0) {
+                    const fs = Math.max(8, Number(s.endLabels.fontSize) - 1);
+                    const txt = this.refName(r.kind) + "  " + this.fmtShort(r.values[lk], r.formats[lk] ?? r.format);
+                    const px = this.x(this.model.keys[lk].pos), py = y(r.values[lk]);
+                    const t = gg.append("text").attr("class", "lc-ref-label").attr("x", px - 2).attr("y", py - 6 >= L.top + fs ? py - 6 : py + fs + 4)
+                        .attr("text-anchor", "end").style("font-size", fs + "px").style("font-weight", "600")
+                        .attr("fill", this.readable(fc, this.ink)).attr("stroke", this.bgColor).attr("stroke-width", 3)
+                        .attr("stroke-linejoin", "round").style("paint-order", "stroke").text(this.fit(txt, fs, Math.max(40, L.plotW * 0.4)));
+                    t.append("title").text(txt);
+                }
+            }
             for (const seg of segs) {
                 if (seg.length > 1) {
                     gg.append("path").attr("d", line(seg)).attr("fill", "none").attr("stroke", color).attr("stroke-width", this.hc ? 1 : width)
@@ -1570,6 +1691,94 @@ export class Visual implements IVisual {
     private notesOn(): boolean {
         const m = this.model;
         return !!this.settings.annotations?.show && !!m?.series.some(s => s.notes?.some(t => t !== null)) && this.previewOf("annotations");
+    }
+
+    /**
+     * Marca "Actual | Plan": línea vertical punteada fina en el último periodo real de la primera serie cuyo plan (o
+     * previsión) sigue después, con dos rótulos pequeños arriba. Una por panel.
+     */
+    private drawActualSplit(g: d3.Selection<SVGGElement, unknown, null, undefined>, L: Layout, boxes: Box[]): void {
+        const m = this.model;
+        let ser: Series | null = null, ref: RefLine | null = null;
+        for (const x of m.series) {
+            const r = x.refs.find(rr => this.continuesAfterActual(x, rr));
+            if (r) { ser = x; ref = r; break; }
+        }
+        if (!ser || ser.lastIndex < this.visLo || ser.lastIndex > this.visHi) return;
+        const x = this.x(m.keys[ser.lastIndex].pos);
+        const color = this.hc ? this.hcFg : this.axisColor("xAxis");
+        g.append("line").attr("class", "lc-split").attr("x1", x).attr("x2", x).attr("y1", L.top).attr("y2", L.top + L.plotH)
+            .attr("stroke", color).attr("stroke-width", 1).attr("stroke-dasharray", "1,3").attr("stroke-linecap", "round")
+            .style("pointer-events", "none");
+        const fs = 9;
+        // Con plan y previsión siguiendo a la vez, los dos nombres.
+        const a = this.t("UI_Actual", "Actual");
+        const b = ser.refs.filter(rr => this.continuesAfterActual(ser, rr)).map(rr => this.refName(rr.kind)).join(" · ") || this.refName(ref.kind);
+        const wa = this.measure(a, fs), wb = this.measure(b, fs);
+        const y = L.top + fs;
+        const gl = this.canvas.append("g").attr("class", "lc-split-labels").style("pointer-events", "none");
+        const lbl = (tx: number, anchor: string, text: string) => gl.append("text").attr("x", tx).attr("y", y).attr("text-anchor", anchor)
+            .style("font-size", fs + "px").attr("fill", color).attr("stroke", this.bgColor).attr("stroke-width", 3)
+            .attr("stroke-linejoin", "round").style("paint-order", "stroke").text(text);
+        if (x - 4 - wa >= L.left) { lbl(x - 4, "end", a); boxes.push({ x0: x - 4 - wa, y0: y - fs, x1: x - 4, y1: y + 2 }); }
+        if (x + 4 + wb <= L.left + L.plotW) { lbl(x + 4, "start", b); boxes.push({ x0: x + 4, y0: y - fs, x1: x + 4 + wb, y1: y + 2 }); }
+    }
+
+    /**
+     * Máximo y mínimo (gratis): círculo hueco en el punto y rótulo "Max 8,6M" encima (o "Min" debajo), sobre lo
+     * visible. Anticolisión con objetivo, eventos y anotaciones (si el rótulo pisa, se prueba al otro lado; si no, solo
+     * el círculo). Las etiquetas finales van fuera del área, en su margen: no se cruzan.
+     */
+    private drawPeaks(L: Layout, yOf: (x: Series) => d3.ScaleLinear<number, number>, boxes: Box[]): void {
+        const s = this.settings.peaks, m = this.model;
+        const fs = Number(s.fontSize);
+        const mode = String(s.mode);
+        const list = String(s.scope) === "all" ? this.drawn : this.drawn.slice(0, 1);
+        const g = this.canvas.append("g").attr("class", "lc-peaks").style("pointer-events", "none");
+        if (this.clipId) g.attr("clip-path", `url(#${this.clipId})`);
+        for (const d of list) {
+            let kMax = -1, kMin = -1;
+            for (let k = this.visLo; k <= this.visHi; k++) {
+                const v = d.s.values[k];
+                if (v === null) continue;
+                if (kMax < 0 || v > d.s.values[kMax]) kMax = k;
+                if (kMin < 0 || v < d.s.values[kMin]) kMin = k;
+            }
+            if (kMax < 0 || kMax === kMin) continue;
+            const y = yOf(d.s);
+            const color = this.hc ? this.hcFg : d.s.color;
+            const marks: [number, string, boolean][] = [];
+            if (mode !== "min") marks.push([kMax, this.t("UI_Max", "Max"), true]);
+            if (mode !== "max") marks.push([kMin, this.t("UI_Min", "Min"), false]);
+            for (const [k, word, up] of marks) {
+                const px = this.x(m.keys[k].pos), py = y(d.s.values[k]);
+                const pg = g.append("g").attr("class", "lc-peak").attr("data-id", d.s.id);
+                pg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5.5).attr("fill", "none").attr("stroke", color).attr("stroke-width", 1.6);
+                if (L.plotH < 90) continue;
+                const txt = word + " " + this.fmtShort(d.s.values[k], d.s.formats[k] ?? d.s.format);
+                const w = this.measure(txt, fs, true);
+                let x0 = Math.max(L.left, Math.min(L.left + L.plotW - w, px - w / 2));
+                const tryAt = (above: boolean): Box | null => {
+                    const yb = above ? py - 9 : py + 9 + fs;
+                    const b: Box = { x0, y0: yb - fs, x1: x0 + w, y1: yb + 2 };
+                    if (b.y0 < L.top || b.y1 > L.top + L.plotH || Visual.overlaps(b, boxes)) return null;
+                    return b;
+                };
+                // Su lado (encima el máximo, debajo el mínimo), luego al costado del punto en ese lado, luego el otro lado.
+                const side = px + 8 <= L.left + L.plotW - w ? px + 8 : px - 8 - w;
+                const center = x0;
+                let box = tryAt(up);
+                if (!box) { x0 = side; box = tryAt(up); }
+                if (!box) { x0 = side; const yb = py + fs / 2 - 1; const b: Box = { x0, y0: yb - fs, x1: x0 + w, y1: yb + 2 };
+                    if (b.y0 >= L.top && b.y1 <= L.top + L.plotH && !Visual.overlaps(b, boxes)) box = b; }
+                if (!box) { x0 = center; box = tryAt(!up); }
+                if (!box) continue;
+                pg.append("text").attr("class", "lc-peak-label").attr("x", box.x0).attr("y", box.y1 - 2).style("font-size", fs + "px")
+                    .style("font-weight", "600").attr("fill", this.readable(color, this.ink)).attr("stroke", this.bgColor).attr("stroke-width", 3)
+                    .attr("stroke-linejoin", "round").style("paint-order", "stroke").text(txt);
+                boxes.push(box);
+            }
+        }
     }
 
     /** Color del objetivo: el elegido; si no, el de referencia/plan del estilo activo (como el plan). */
@@ -1753,7 +1962,7 @@ export class Visual implements IVisual {
         const bg = hc ? this.hcBg : (s.background ? String(s.background) : this.bgColor);
         const op = hc ? 1 : Math.max(0, Math.min(1, Number(s.opacity) / 100));
         const g = this.canvas.append("g").attr("class", "lc-annotations").style("pointer-events", this.formatMode ? null : "none");
-        const boxes = obstacles.slice();
+        const boxes = obstacles;   // se comparten: los máximos y mínimos no deben pisar las notas
         const maxW = Math.max(50, Math.min(180, L.plotW * 0.35));
         const xl = L.left, xr = L.left + L.plotW, yt = L.top, yb = L.top + L.plotH;
         const items: { ser: Series; k: number; t: string; x: number; y: number }[] = [];
@@ -2168,6 +2377,7 @@ export class Visual implements IVisual {
         const items: VisualTooltipDataItem[] = [];
         if (this.multi && m.smCol) items.push({ displayName: m.smCol.source.displayName, value: m.smShown || this.t("UI_Blank", "(Blank)") });
         items.push({ displayName: m.axisName, value: this.keyLabel(k) });
+        if (this.valueMode !== "value") items.push({ displayName: this.propLabel("lines", "valueMode").replace(/\s*\(Pro\)\s*$/, ""), value: this.valueModeName() });
         // El texto completo del evento (la etiqueta puede ir recortada o sin pintar por anticolisión).
         if (this.eventsOn() && m.events[k]) items.push({ displayName: m.eventsField.name, value: m.events[k] });
         const notesOn = this.notesOn();
