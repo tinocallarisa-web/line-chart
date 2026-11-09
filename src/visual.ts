@@ -1,232 +1,1696 @@
 /*
- * Line Chart by TCViz — ESQUELETO DE DIAGNÓSTICO DEL MAPEO DE DATOS (no es el visual real).
+ * Line Chart by TCViz — bloque 1 (la parte gratuita).
  *
- * En cada update pinta en el propio visual (y en console.log) lo que Power BI entrega en el
- * dataView categorical: categorías y roles, tipo de la columna del eje, niveles de jerarquía,
- * grupos de la leyenda (values.grouped()), medidas por grupo con su rol y formato, highlights,
- * metadata.segment (recorte / paginación), operationKind y las cinco primeras filas.
+ * Eje de fechas continuo (o categórico con texto, número o nivel de jerarquía), huecos honestos (Break / Connect /
+ * Zero; vacío ≠ cero), varias medidas y leyenda con eje secundario, Plan / Prior year / Forecast como líneas grises,
+ * etiquetas al final con el último valor no vacío, tooltip con cruceta, resaltado, selección, teclado, alto contraste,
+ * mosaico pequeño, landing de la serie, asistente y formato desde el lienzo.
  *
- * Sin licencia todavía. Cuando llegue el visual real:
- *   // const PLAN_IDS: string[] = [];   // Service ID(s) de Partner Center (ver LECCIONES-2026-09-14.md)
+ * Reglas de la cartera que se cumplen aquí:
+ *  - renderingStarted / Finished|Failed 1:1 por update(): los repintados internos (licencia, hover, selección,
+ *    teclado, asistente) llaman a render() o a paintState(), nunca a this.update(), y no emiten eventos.
+ *  - La licencia se pide en diferido, fuera del try: un fallo de licencia nunca convierte un render en Failed.
+ *  - Nunca persistProperties dentro de registerOnSelectCallback.
+ *  - allowInteractions desde host.hostCapabilities.
+ *  - Sin innerHTML: todo con createElement / d3 y textContent.
+ *  - Formato de números del modelo (source.format, formato dinámico por punto y host.locale).
  */
 "use strict";
 
 import powerbi from "powerbi-visuals-api";
+import * as d3 from "d3";
+import { valueFormatter } from "powerbi-visuals-utils-formattingutils";
+import {
+    HtmlSubSelectableClass, HtmlSubSelectionHelper, SubSelectableDisplayNameAttribute,
+    SubSelectableObjectNameAttribute, SubSelectableTypeAttribute,
+} from "powerbi-visuals-utils-onobjectutils";
 import "./../style/visual.less";
+
+import { STRINGS } from "./strings";
+import { OBJECTS, PANE, PropSpec } from "./formatSpec";
+import { buildModel, cadenceOf, Model, Series, RefKind, segmentsOf, Pt } from "./model";
 
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import IVisual = powerbi.extensibility.visual.IVisual;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
+import ISelectionManager = powerbi.extensibility.ISelectionManager;
+import ISelectionId = powerbi.visuals.ISelectionId;
 import IVisualEventService = powerbi.extensibility.IVisualEventService;
+import ILocalizationManager = powerbi.extensibility.ILocalizationManager;
 import DataView = powerbi.DataView;
-import DataViewCategoryColumn = powerbi.DataViewCategoryColumn;
-import DataViewValueColumn = powerbi.DataViewValueColumn;
-import DataViewMetadataColumn = powerbi.DataViewMetadataColumn;
-import PrimitiveValue = powerbi.PrimitiveValue;
+import VisualTooltipDataItem = powerbi.extensibility.VisualTooltipDataItem;
 
-// build-test.js la rellena con "test AAAA-MM-DD HH:MM"; en producción va vacía y no se pinta.
+type Sel<T extends d3.BaseType> = d3.Selection<T, unknown, null, undefined>;
+type Settings = Record<string, Record<string, any>>;
+
+// build-test.js la rellena con "test AAAA-MM-DD HH:MM vX"; en producción va vacía y no se pinta.
 const TEST_STAMP = ""; // TEST_STAMP_MARKER
-const MAX_ROWS = 5;
-const MAX_GROUPS_PER_ROW = 4;
+
+/**
+ * Plan previsto en Partner Center (serie económica, como Radar: 0,99/mes · 9,99/año). El bloque 1 no tiene funciones
+ * Pro activas: la licencia ya se resuelve para que el bloque 2 (estilos, banda real-vs-referencia, Δ, small multiples)
+ * solo tenga que leer isPro. El Plan ID DEBE ser el que se escriba al crear el plan.
+ */
+const PLAN_IDS = ["line-chart-pro"];
+const STATE_ACTIVE = 1;
+const STATE_WARNING = 2;
+/** spIdentifier es el Service ID completo ("editor.oferta.plan"); se acepta también el Plan ID solo. */
+function matchesPlan(sp: unknown, planId: string): boolean {
+    const s = String(sp ?? "");
+    return s === planId || s.endsWith("." + planId);
+}
+
+// Enlaces de la pantalla de inicio: solo con un clic, por host.launchUrl.
+const URL_GUIDE = "https://tinocallarisa-web.github.io/LineChart/support.html";
+const URL_PRODUCT = "https://tcviz.com/product/line-chart/?ref=visual-line-chart";
+
+/** Colores "Classic" de Power BI, por orden de serie. */
+const CLASSIC = ["#118DFF", "#12239E", "#E66C37", "#6B007B", "#E044A7", "#744EC2", "#D9B300", "#D64550", "#197278", "#1AAB40"];
+/** Alto contraste: las series se distinguen por trazo y marcador, no por color. */
+const HC_DASH = ["", "10,4", "16,4,4,4", "5,5", "20,5", "12,3,3,3,3,3", "8,8", "24,4,8,4"];
+const HC_SYMBOLS = [d3.symbolCircle, d3.symbolSquare, d3.symbolTriangle, d3.symbolDiamond, d3.symbolCross, d3.symbolStar, d3.symbolWye];
+const REF_DASH: Record<RefKind, string> = { plan: "6,3", previousYear: "2,3", forecast: "8,3,2,3" };
+const REF_DEFAULT_NAME: Record<RefKind, [string, string]> = {
+    plan: ["Role_Plan", "Plan"], previousYear: ["Role_PreviousYear", "Prior year"], forecast: ["Role_Forecast", "Forecast"],
+};
+
+/**
+ * Plantillas. Solo rellenan lo que el usuario no ha tocado (lo guardado en metadata.objects gana) y, al ELEGIR una,
+ * se borran los ajustes que ella define (aplicarPlantilla). "report" se reconstruye en cada update desde el tema.
+ */
+const TEMPLATES: Record<string, Settings> = {
+    report: {},
+    classic: { xAxis: { color: "#605E5C" }, yAxis: { color: "#605E5C", gridColor: "#E1DFDD" }, legend: { color: "#605E5C" },
+        endLabels: { color: "#252423" }, references: { color: "#8A8886" } },
+};
+
+/**
+ * Los seis estilos de la colección (bloque 2, Pro con vista previa). Tokens compartidos con KPI Card:
+ * trend.color = la serie real (series[0]), targetColor = el plan. Preparados, aún no se aplican.
+ */
+const PRO_STYLES = ["boardroom", "ledger", "editorial", "signal", "aurora", "terrace"];
+export const STYLE_TOKENS: Record<string, { bg: string; text: string; axis: string; grid: string; plan: string; series: string[]; font?: string; grad?: string }> = {
+    boardroom: { bg: "#16263D", text: "#F2F0E8", axis: "#9FB0C6", grid: "#2A3E5C", plan: "#6FCF97", series: ["#C9A45C", "#8FB8E8", "#EB8A7B", "#6FCF97", "#C5D3E3"] },
+    ledger: { bg: "#FBF8EF", text: "#231F16", axis: "#6E6652", grid: "#D9D2BE", plan: "#946A10", series: ["#7A1F1F", "#3A3528", "#2F6B3B", "#946A10", "#B7AD92"], font: "Georgia, serif" },
+    editorial: { bg: "#FFFFFF", text: "#111111", axis: "#5F5F5F", grid: "#E2E2E2", plan: "#111111", series: ["#D7263D", "#111111", "#5F5F5F", "#BDBDBD", "#8C1C2B"], font: "Georgia, serif" },
+    signal: { bg: "#FFFFFF", text: "#14202B", axis: "#566472", grid: "#D9DEE4", plan: "#B7791F", series: ["#1F7A4D", "#14202B", "#B7791F", "#C0392B", "#9AA5B1"] },
+    aurora: { bg: "#10395E", text: "#FFFFFF", axis: "#C5D3E3", grid: "#3A5C7E", plan: "#FFD27D", series: ["#7CE7D0", "#FFD27D", "#FF9DB0", "#9DB7FF", "#C5D3E3"], grad: "linear-gradient(135deg, #1B1147, #10395E 50%, #0B5A5E)" },
+    terrace: { bg: "#FBF5EC", text: "#3A2A1E", axis: "#7A6450", grid: "#E5D6C2", plan: "#5E7128", series: ["#B5532A", "#5E7128", "#B5782A", "#B5372A", "#C9A77E"] },
+};
+
+/** "Report theme" (por defecto): los colores del tema del informe, como un visual nativo. */
+function reportTemplate(host: IVisualHost): Settings {
+    const pal: any = host.colorPalette;
+    const fg: string = pal?.foreground?.value ?? "#252423";
+    const soft: string = pal?.foregroundNeutralSecondary?.value ?? "#605E5C";
+    const grid: string = pal?.backgroundNeutral?.value ?? "#E1DFDD";
+    const ter: string = pal?.foregroundNeutralTertiary?.value ?? "#8A8886";
+    return { xAxis: { color: soft }, yAxis: { color: soft, gridColor: grid }, legend: { color: soft },
+        endLabels: { color: fg }, references: { color: ter } };
+}
+
+interface Layout {
+    mode: "full" | "mini" | "spark";
+    W: number; H: number;
+    left: number; right: number; top: number; bottom: number;
+    plotW: number; plotH: number;
+    xAxis: boolean; yAxis: boolean; y2Axis: boolean; xTitle: boolean; yTitle: boolean; y2Title: boolean;
+    legend: boolean; legendRows: LegendItem[][]; legendH: number;
+    labels: boolean; labelW: number; y1W: number; y2W: number;
+    noticeH: number;
+}
+
+interface LegendItem { label: string; color: string; kind: "series" | "ref"; dash: string; series?: Series; ref?: RefKind; w: number; idx: number; }
+
+interface Drawn { s: Series; y: d3.ScaleLinear<number, number>; segs: Pt[][]; }
 
 export class Visual implements IVisual {
     private host: IVisualHost;
     private events: IVisualEventService;
-    private root: HTMLElement;
-    private updateCount = 0;
+    private selectionManager: ISelectionManager;
+    private loc: ILocalizationManager;
+    private root: HTMLDivElement;
+    private svg: Sel<SVGSVGElement>;
+    private live: HTMLDivElement;
+    private guideEl: HTMLDivElement | null = null;
+    private subSelectionHelper: HtmlSubSelectionHelper;
+    public visualOnObjectFormatting: powerbi.extensibility.visual.VisualOnObjectFormatting;
+
+    private isPro = false; // ISPRO_MARKER
+    private licenseRequested = false;
+    private licenseResolved = false;
+    private licenseEnvUnsupported = false;
+
+    private lastOptions: VisualUpdateOptions | null = null;
+    private dataView: DataView | null = null;
+    private model: Model | null = null;
+    private settings: Settings = {};
+    private tplVisto: string | null = null;
+    private tplEfectiva = "report";
+    private editing = false;
+    private formatMode = false;
+    private guideStep = 1;
+
+    // Dibujo en curso (para el puntero, el teclado y la selección)
+    private L: Layout | null = null;
+    private x: (pos: number) => number = () => 0;
+    private y1: d3.ScaleLinear<number, number> | null = null;
+    private y2: d3.ScaleLinear<number, number> | null = null;
+    private drawn: Drawn[] = [];
+    private hoverId: string | null = null;
+    private focusKey = -1;
+    private focusSeries = 0;
+    private hasFocus = false;
+    /** Selección propia: clave → id. "s␟<leyenda>" serie; "p␟<k>␟<leyenda>" punto. */
+    private selKeys = new Map<string, ISelectionId>();
+    private pendingRestore: ISelectionId[] | null = null;
+    private fmtCache = new Map<string, valueFormatter.IValueFormatter>();
+    private canvasCtx: CanvasRenderingContext2D | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.host = options.host;
         this.events = options.host.eventService;
+        this.selectionManager = options.host.createSelectionManager();
+        this.loc = options.host.createLocalizationManager();
+
         this.root = document.createElement("div");
-        this.root.className = "line-chart-tcviz-diag";
-        this.root.style.cssText = "position:absolute;inset:0;overflow:auto;padding:6px 8px;box-sizing:border-box;" +
-            "font-size:11px;line-height:1.35;color:#252423;background:#fff;white-space:pre-wrap;" +
-            "font-family:Consolas,'Courier New',monospace;";
-        this.root.tabIndex = 0;
+        this.root.className = "lc-root";
         options.element.appendChild(this.root);
+        this.svg = d3.select(this.root).append("svg").attr("class", "lc-svg") as unknown as Sel<SVGSVGElement>;
+        this.live = document.createElement("div");
+        this.live.className = "lc-live";
+        this.live.setAttribute("aria-live", "polite");
+        this.root.appendChild(this.live);
+        this.injectStyles();
+
+        this.subSelectionHelper = HtmlSubSelectionHelper.createHtmlSubselectionHelper({
+            hostElement: options.element,
+            subSelectionService: options.host.subSelectionService,
+            selectionIdCallback: () => undefined,
+        });
+        this.visualOnObjectFormatting = {
+            getSubSelectionStyles: (subs) => this.getSubSelectionStyles(subs),
+            getSubSelectionShortcuts: (subs) => this.getSubSelectionShortcuts(subs),
+            getSubSelectables: (filter) => this.subSelectionHelper.getAllSubSelectables(filter),
+        };
+
+        // Marcadores y selección desde fuera: solo derivar y repintar. Nunca persistProperties aquí.
+        const sm = this.selectionManager as any;
+        if (typeof sm.registerOnSelectCallback === "function") {
+            sm.registerOnSelectCallback((ids: ISelectionId[]) => {
+                this.restoreSelection(ids || []);
+                this.paintState();
+            });
+        }
+
+        const node = this.svg.node() as SVGSVGElement;
+        node.addEventListener("keydown", (e: KeyboardEvent) => this.onKey(e));
+        node.addEventListener("focus", () => { this.hasFocus = true; this.onFocus(); });
+        node.addEventListener("blur", () => { this.hasFocus = false; this.hideTip(); this.drawCross(-1); });
     }
+
+    // ── Textos y formato ─────────────────────────────────────────────────────
+
+    /** Primero la tabla del bundle (Desktop solo traduce las claves de capabilities.json), luego el gestor, luego inglés. */
+    private t(key: string, fallback: string): string {
+        const loc = String(this.host?.locale || "");
+        const tabla = STRINGS[loc] || STRINGS[Object.keys(STRINGS).find(l => l.slice(0, 2) === loc.slice(0, 2)) || ""];
+        if (tabla && tabla[key]) return tabla[key];
+        try {
+            const s = this.loc?.getDisplayName(key);
+            return s && s !== key ? s : fallback;
+        } catch { return fallback; }
+    }
+
+    private tf(key: string, fallback: string, ...args: string[]): string {
+        return this.t(key, fallback).replace(/\{(\d+)\}/g, (_m, i) => args[Number(i)] ?? "");
+    }
+
+    private static isPct(fmt: string | undefined): boolean {
+        return !!fmt && /%/.test(fmt.replace(/"[^"]*"|\\./g, ""));
+    }
+
+    private formatter(format: string | undefined, scale?: number): valueFormatter.IValueFormatter {
+        const pct = Visual.isPct(format);
+        const k = (format ?? "") + "|" + (pct || scale === undefined ? "" : String(scale));
+        let f = this.fmtCache.get(k);
+        if (!f) {
+            f = pct || scale === undefined
+                ? valueFormatter.create({ format, cultureSelector: this.host.locale })
+                : valueFormatter.create({ format, value: scale, displayUnitSystemType: 2, cultureSelector: this.host.locale });
+            this.fmtCache.set(k, f);
+        }
+        return f;
+    }
+
+    /** Valor completo (tooltip): el formato del punto (dinámico) o el de la medida, sin unidades. */
+    private fmtFull(v: number | null, fmt: string | undefined): string {
+        if (v === null || v === undefined || !isFinite(v)) return this.t("UI_Blank", "(Blank)");
+        return this.formatter(fmt).format(v);
+    }
+
+    /** Valor corto (etiquetas, ejes): unidades automáticas, salvo porcentajes. */
+    private fmtShort(v: number, fmt: string | undefined, scale?: number): string {
+        return this.formatter(fmt, scale ?? Math.abs(v)).format(v);
+    }
+
+    /** Marcas de un eje: misma unidad y mismos decimales en todas (0,8K · 1,0K · 1,2K, no 0.8K · 1K). */
+    private tickFormatter(ticks: number[], fmt: string | undefined): (v: number) => string {
+        const maxAbs = Math.max(...ticks.map(Math.abs), 0);
+        if (Visual.isPct(fmt) || maxAbs < 1000) return (v: number) => this.fmtShort(v, fmt, maxAbs);
+        const unit = maxAbs >= 1e12 ? 1e12 : maxAbs >= 1e9 ? 1e9 : maxAbs >= 1e6 ? 1e6 : 1e3;
+        const step = ticks.length > 1 ? Math.abs(ticks[1] - ticks[0]) : maxAbs;
+        const precision = Math.max(0, Math.min(4, Math.ceil(-Math.log10(step / unit) - 1e-9)));
+        const f = valueFormatter.create({ format: fmt, value: maxAbs, precision, displayUnitSystemType: 2, cultureSelector: this.host.locale });
+        return (v: number) => f.format(v);
+    }
+
+    private intlDate(d: Date, opts: Intl.DateTimeFormatOptions): string {
+        try { return new Intl.DateTimeFormat(this.host.locale || "en-US", opts).format(d); } catch { return d.toDateString(); }
+    }
+
+    /** Etiqueta de una clave del eje, con el formato de su columna. */
+    private keyLabel(k: number): string {
+        const m = this.model;
+        if (!m || k < 0 || k >= m.keys.length) return "";
+        return m.keys[k].raw.map((v, i) => {
+            const src = m.axisCols[i].source;
+            if (v instanceof Date) {
+                return src.format ? this.formatter(src.format).format(v) : this.intlDate(v, { day: "numeric", month: "short", year: "numeric" });
+            }
+            if (typeof v === "number") return src.format ? this.formatter(src.format).format(v) : String(v);
+            return String(v);
+        }).join(" ");
+    }
+
+    private measure(text: string, size: number, bold = false): number {
+        if (!this.canvasCtx) {
+            try { this.canvasCtx = document.createElement("canvas").getContext("2d"); } catch { this.canvasCtx = null; }
+        }
+        if (!this.canvasCtx) return text.length * size * 0.56;
+        this.canvasCtx.font = (bold ? "600 " : "") + size + "px 'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif";
+        return this.canvasCtx.measureText(text).width;
+    }
+
+    private fit(text: string, size: number, maxW: number): string {
+        if (this.measure(text, size) <= maxW) return text;
+        let lo = 0, hi = text.length;
+        while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (this.measure(text.slice(0, mid) + "…", size) <= maxW) lo = mid; else hi = mid - 1; }
+        return lo > 0 ? text.slice(0, lo) + "…" : "";
+    }
+
+    // ── Ajustes ──────────────────────────────────────────────────────────────
+
+    private readSettings(dv: DataView | null, tpl: string): Settings {
+        const o: any = dv?.metadata?.objects ?? {};
+        const t = TEMPLATES[tpl] ?? {};
+        const out: Settings = {};
+        for (const obj of Object.keys(OBJECTS)) {
+            out[obj] = {};
+            for (const p of OBJECTS[obj].props) {
+                const saved = o?.[obj]?.[p.name];
+                let v: any = p.type === "fill" ? saved?.solid?.color : saved;
+                if (v === undefined || v === null) v = t?.[obj]?.[p.name];
+                if (v === undefined || v === null) v = p.def;
+                if (p.type === "num") {
+                    v = Number(v);
+                    if (!isFinite(v)) v = p.def;
+                    if (p.min !== undefined) v = Math.max(p.min, v);
+                    if (p.max !== undefined) v = Math.min(p.max, v);
+                }
+                out[obj][p.name] = v;
+            }
+        }
+        return out;
+    }
+
+    /** Bloque 1: los estilos Pro no se aplican todavía (bloque 2). Sin licencia, nunca. */
+    private plantillaEfectiva(dv: DataView | null): string {
+        const t = String((dv?.metadata?.objects as any)?.style?.template ?? "report");
+        return t === "classic" ? "classic" : "report";
+    }
+
+    private get canInteract(): boolean {
+        if (this.formatMode) return false;
+        // hostCapabilities es donde la API 5.x lo pone; host.allowInteractions era el sitio antiguo.
+        const h: any = this.host;
+        return (h?.hostCapabilities?.allowInteractions ?? h?.allowInteractions) !== false;
+    }
+
+    private get hc(): boolean { return !!(this.host.colorPalette as any)?.isHighContrast; }
+    private get hcFg(): string { return (this.host.colorPalette as any)?.foreground?.value ?? "#000000"; }
+    private get hcBg(): string { return (this.host.colorPalette as any)?.background?.value ?? "#FFFFFF"; }
+    private get hcSel(): string { return (this.host.colorPalette as any)?.foregroundSelected?.value ?? this.hcFg; }
+
+    // ── Update ───────────────────────────────────────────────────────────────
 
     public update(options: VisualUpdateOptions): void {
         this.events.renderingStarted(options);
         try {
-            this.updateCount++;
-            const lines = this.diagnose(options);
-            this.paint(lines);
-            console.log("[LineChart DIAG]\n" + lines.join("\n"));
+            this.lastOptions = options;
+            const dv = options.dataViews?.[0] ?? null;
+            this.dataView = dv;
+            const vm = (options as any).viewMode;
+            this.editing = typeof vm === "number" && vm !== 0;
+            this.formatMode = !!(options as any).formatMode;
+            this.subSelectionHelper.setFormatMode(this.formatMode);
+            if (dv) {
+                // Elegir una plantilla la aplica de verdad: solo al CAMBIARLA y editando; nunca al abrir el informe.
+                const ahora = String(((dv.metadata?.objects as any)?.style?.template) ?? "report");
+                if (this.editing && this.tplVisto !== null && this.tplVisto !== ahora) this.aplicarPlantilla(ahora);
+                this.tplVisto = ahora;
+            }
+            this.fmtCache.clear();
+            this.render(options);
+            if (this.formatMode) this.subSelectionHelper.updateOutlinesFromSubSelections((options as any).subSelections ?? [], true);
             this.events.renderingFinished(options);
         } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            console.log("[LineChart DIAG] error: " + msg);
-            this.events.renderingFailed(options, msg);
+            this.events.renderingFailed(options, String(e));
+            console.error("[LineChart]", e);
         }
+        // Fuera del try: un fallo de licencia nunca convierte un render correcto en renderingFailed.
+        this.requestLicenseDeferred();
     }
 
-    // ---------------------------------------------------------------- diagnóstico
+    /** Repinta con las últimas options fuera de update(): no emite rendering events. */
+    private repaint(): void {
+        if (!this.lastOptions) return;
+        try { this.render(this.lastOptions); } catch (e) { console.error("[LineChart]", e); }
+    }
 
-    private diagnose(options: VisualUpdateOptions): string[] {
-        const L: string[] = [];
-        const o = options as unknown as Record<string, unknown>;
-        L.push("LINE CHART by TCViz — diagnóstico de mapeo · update #" + this.updateCount + (TEST_STAMP ? "  [" + TEST_STAMP + "]" : ""));
-        L.push("type=" + options.type + "  operationKind=" + this.opKind(o.operationKind) +
-            "  viewport=" + Math.round(options.viewport.width) + "x" + Math.round(options.viewport.height) +
-            "  isLandingPage=" + String(o.isLandingPage));
+    /** Pide la licencia una vez, fuera del camino crítico. Si no resuelve, se queda en Free. */
+    private requestLicenseDeferred(): void {
+        if (this.licenseRequested || this.isPro) return;
+        this.licenseRequested = true;
+        window.setTimeout(() => {
+            try {
+                const lm: any = this.host.licenseManager;
+                if (!lm) { this.licenseEnvUnsupported = true; this.licenseResolved = true; return; }
+                lm.getAvailableServicePlans().then(
+                    (r: any) => {
+                        if (r?.isLicenseUnsupportedEnv === true || r?.isLicenseInfoAvailable === false) this.licenseEnvUnsupported = true;
+                        this.licenseResolved = true;
+                        const pro = (r?.plans ?? []).some((p: any) => PLAN_IDS.some(id => matchesPlan(p.spIdentifier, id)) &&
+                            (p.state === STATE_ACTIVE || p.state === STATE_WARNING));
+                        if (pro && !this.isPro) { this.isPro = true; this.repaint(); }
+                    },
+                    () => { this.licenseEnvUnsupported = true; this.licenseResolved = true; });
+            } catch {
+                this.licenseEnvUnsupported = true;
+                this.licenseResolved = true;
+            }
+        }, 0);
+    }
 
-        const dv: DataView | undefined = options.dataViews && options.dataViews[0];
-        if (!dv) {
-            L.push("", "Sin dataView: añade un campo a Axis y una medida a Values.");
-            return L;
+    private clearDrawing(): void {
+        this.svg.selectAll("*").remove();
+        d3.select(this.root).selectAll(".lc-landing, .lc-msg").remove();
+        this.drawn = [];
+        this.L = null;
+    }
+
+    private render(options: VisualUpdateOptions): void {
+        const dv = this.dataView;
+        TEMPLATES.report = reportTemplate(this.host);
+        this.tplEfectiva = this.plantillaEfectiva(dv);
+        this.settings = this.readSettings(dv, this.tplEfectiva);
+        this.clearDrawing();
+        const W = Math.max(0, options.viewport.width), H = Math.max(0, options.viewport.height);
+        this.svg.attr("width", W).attr("height", H);
+        this.root.style.background = this.hc ? this.hcBg : "";
+
+        this.model = dv ? buildModel(dv, this.t("UI_Blank", "(Blank)")) : null;
+        const m = this.model;
+        if (!m) {
+            this.renderLanding(W, H);
+            this.renderGuide(W, H);
+            return;
         }
-        const md = dv.metadata || ({} as powerbi.DataViewMetadata);
-        const seg = (md as unknown as Record<string, unknown>).segment;
-        L.push("metadata.segment=" + (seg === undefined ? "(no llega: datos completos)" : "LLEGA → hay más filas " + this.json(seg)) +
-            "  metadata.columns=" + (md.columns ? md.columns.length : 0));
-        const extraMd = Object.keys(md).filter(k => k !== "columns" && k !== "objects" && k !== "segment");
-        if (extraMd.length) L.push("otras claves de metadata: " + extraMd.join(", "));
-
-        const cat = dv.categorical;
-        if (!cat) {
-            L.push("", "No llega dataView.categorical.");
-            return L;
+        this.assignColors(m);
+        if (this.pendingRestore) { this.restoreSelection(this.pendingRestore); }
+        else if (!this.selKeys.size) {
+            const ids = this.selectionManager.getSelectionIds?.() as ISelectionId[] | undefined;
+            if (ids && ids.length) this.restoreSelection(ids);
         }
+        this.pruneSelection(m);
+        if (!m.keys.length) {
+            this.message(W, H, m.missingAxis
+                ? this.tf("UI_NoAxisAll", "{0} values have no date on the axis: nothing to draw.", this.int(m.missingAxis))
+                : this.t("UI_NoData", "No data to draw."));
+            this.renderGuide(W, H);
+            return;
+        }
+        this.draw(W, H);
+        this.markSubSelectables();
+        this.renderGuide(W, H);
+        if (this.focusKey >= m.keys.length) this.focusKey = m.keys.length - 1;
+        if (this.hasFocus) this.onFocus();
+    }
 
-        // Categorías
-        const cats: DataViewCategoryColumn[] = cat.categories || [];
-        L.push("", "CATEGORÍAS: " + cats.length);
-        cats.forEach((c, i) => {
-            const s = c.source;
-            L.push("  [" + i + "] \"" + s.displayName + "\" roles=" + this.roles(s) + " filas=" + (c.values ? c.values.length : 0) +
-                " tipo=" + this.typeOf(s));
-            L.push("      queryName=" + (s.queryName || "-") + "  jerarquía=" + this.hierarchyInfo(s));
-            if (c.values && c.values.length) {
-                L.push("      primero=" + this.fmt(c.values[0]) + "  último=" + this.fmt(c.values[c.values.length - 1]) +
-                    "  distintos=" + new Set(c.values.map(v => this.key(v))).size);
-                const fechas = c.values.filter(v => v instanceof Date) as Date[];
-                if (fechas.length) {
-                    const t = fechas.map(d => d.getTime());
-                    L.push("      mín=" + this.fmt(new Date(Math.min(...t))) + "  máx=" + this.fmt(new Date(Math.max(...t))));
+    private int(n: number): string { return this.formatter("#,0").format(n); }
+
+    private assignColors(m: Model): void {
+        const classic = this.tplEfectiva === "classic";
+        const pal: any = this.host.colorPalette;
+        m.series.forEach((s, i) => {
+            if (this.hc) s.color = this.hcFg;
+            else if (classic) s.color = CLASSIC[i % CLASSIC.length];
+            else s.color = pal?.getColor?.(s.name)?.value ?? CLASSIC[i % CLASSIC.length];
+        });
+    }
+
+    // ── Dibujo ───────────────────────────────────────────────────────────────
+
+    private notices(m: Model): string[] {
+        const out: string[] = [];
+        if (m.segment) out.push(this.t("UI_Segment", "Power BI sent only part of the data (over 30,000 combinations): the chart is incomplete. Filter it or use a coarser axis."));
+        if (m.missingAxis) out.push(this.tf("UI_NoAxis", "{0} values without a date on the axis", this.int(m.missingAxis)));
+        if (m.smCol && m.smPanels > 1) out.push(this.tf("UI_SmPending", "Small multiples are not drawn yet: showing {0}", m.smShown || this.t("UI_Blank", "(Blank)")));
+        return out;
+    }
+
+    private yFormat(role: "values" | "secondaryValues"): string | undefined {
+        const s = this.model?.series.find(x => x.role === role);
+        return s?.format;
+    }
+
+    private domainOf(role: "values" | "secondaryValues", zero: boolean, withRefs: boolean): [number, number] | null {
+        let lo = Infinity, hi = -Infinity;
+        const take = (v: number | null) => { if (v !== null && isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; } };
+        for (const s of this.model.series) {
+            if (s.role !== role) continue;
+            s.values.forEach(take);
+            if (withRefs) for (const r of s.refs) r.values.forEach(take);
+        }
+        if (lo === Infinity) return null;
+        if (this.settings.lines.missing === "zero" || zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+        if (lo === hi) { const d = Math.abs(lo) || 1; lo -= d * 0.1; hi += d * 0.1; }
+        return [lo, hi];
+    }
+
+    private draw(W: number, H: number): void {
+        const m = this.model;
+        const s = this.settings;
+        const hc = this.hc;
+        const mode: Layout["mode"] = H < 120 ? "spark" : (W < 220 || H < 140) ? "mini" : "full";
+        const refsOn = s.references.show && mode !== "spark";
+        const hasY2 = m.series.some(x => x.role === "secondaryValues");
+        const hasY1 = m.series.some(x => x.role === "values");
+
+        const d1 = this.domainOf(hasY1 ? "values" : "secondaryValues", s.yAxis.zero, refsOn);
+        const d2 = hasY1 && hasY2 ? this.domainOf("secondaryValues", s.y2Axis.zero, false) : null;
+        this.y1 = d3.scaleLinear().domain(d1 ?? [0, 1]).nice();
+        this.y2 = d2 ? d3.scaleLinear().domain(d2).nice() : null;
+        const onY2 = (x: Series) => !!this.y2 && x.role === "secondaryValues";
+        const yOf = (x: Series) => (onY2(x) ? this.y2 : this.y1);
+
+        const L = this.layoutFor(W, H, mode, m);
+        this.L = L;
+        this.y1.range([L.top + L.plotH, L.top]);
+        if (this.y2) this.y2.range([L.top + L.plotH, L.top]);
+
+        // X
+        const keys = m.keys;
+        const K = keys.length;
+        if (m.isTime) {
+            const lo = keys[0].pos, hi = keys[K - 1].pos;
+            const pad = K === 1 ? m.cadence / 2 : 0;
+            const sx = d3.scaleTime().domain([new Date(lo - pad), new Date(hi + pad)]).range([L.left, L.left + L.plotW]);
+            this.x = (p: number) => sx(new Date(p));
+            if (L.xAxis) this.drawTimeAxis(sx, L);
+        } else {
+            const inset = K === 1 ? L.plotW / 2 : Math.min(L.plotW / (K * 2), 12);
+            const sx = d3.scaleLinear().domain([0, Math.max(1, K - 1)]).range([L.left + inset, L.left + L.plotW - inset]);
+            this.x = K === 1 ? () => L.left + L.plotW / 2 : (p: number) => sx(p);
+            if (L.xAxis) this.drawCatAxis(L);
+        }
+        if (mode === "full") this.drawYAxes(L, hasY1, hasY2);
+
+        // Capas
+        const gRefs = this.svg.append("g").attr("class", "lc-refs");
+        const gLines = this.svg.append("g").attr("class", "lc-lines");
+        this.svg.append("g").attr("class", "lc-sel");
+        this.svg.append("g").attr("class", "lc-cross");
+
+        const missing = String(s.lines.missing);
+        const lw = Number(s.lines.width);
+        const line = d3.line<Pt>().x(p => this.x(p.pos)).y(() => 0);
+        const markerMode = String(s.lines.markers);
+        const showMarkers = mode !== "spark" && (markerMode === "on" || (markerMode === "auto" && K <= 40 && L.plotW / K >= 10) || hc);
+        const series = mode === "spark" ? m.series.slice(0, 8) : m.series;
+
+        series.forEach((ser, si) => {
+            const y = yOf(ser);
+            const segs = segmentsOf(ser.values, keys, missing, ser.cadence, m.cadence, m.isTime);
+            this.drawn.push({ s: ser, y, segs });
+            const g = gLines.append("g").attr("class", "lc-series").attr("data-id", ser.id);
+            const color = ser.color;
+            const dash = hc ? HC_DASH[si % HC_DASH.length] : "";
+            const path = (pts: Pt[], cls: string, opacity: number) => {
+                line.y(p => y(p.v));
+                g.append("path").attr("class", cls).attr("d", line(pts)).attr("fill", "none").attr("stroke", color)
+                    .attr("stroke-width", hc ? Math.max(lw, 2) : lw).attr("stroke-dasharray", dash || null)
+                    .attr("stroke-linejoin", "round").attr("stroke-linecap", "round").attr("opacity", opacity);
+            };
+            const isolated = (pts: Pt[], opacity: number) => {
+                g.append("circle").attr("class", "lc-dot").attr("cx", this.x(pts[0].pos)).attr("cy", y(pts[0].v))
+                    .attr("r", Math.max(lw, 2)).attr("fill", color).attr("opacity", opacity);
+            };
+            const base = m.hasHighlights ? 0.28 : 1;
+            for (const seg of segs) { if (seg.length > 1) path(seg, "lc-line", base); else isolated(seg, base); }
+            if (m.hasHighlights && ser.highlights) {
+                for (const seg of segmentsOf(ser.highlights, keys, missing, ser.cadence, m.cadence, m.isTime)) {
+                    if (seg.length > 1) path(seg, "lc-line lc-hl", 1); else isolated(seg, 1);
                 }
             }
+            if (showMarkers) {
+                const sym = hc ? d3.symbol().type(HC_SYMBOLS[si % HC_SYMBOLS.length]).size(Math.pow(Number(s.lines.markerSize) * 2 + 1, 2)) : null;
+                // Alto contraste: un marcador propio cada pocos puntos, desfasado por serie para que no se tapen.
+                const step = Math.max(1, Math.ceil(K / 16));
+                const off = Math.round((si * step) / Math.max(1, Math.min(series.length, 8))) % step;
+                ser.values.forEach((v, k) => {
+                    if (v === null || (hc && step > 1 && (k % step) !== off)) return;
+                    const cx = this.x(keys[k].pos), cy = y(v);
+                    if (sym) g.append("path").attr("class", "lc-marker").attr("d", sym()).attr("transform", `translate(${cx},${cy})`)
+                        .attr("fill", this.hcBg).attr("stroke", color).attr("stroke-width", 1.5);
+                    else g.append("circle").attr("class", "lc-marker").attr("cx", cx).attr("cy", cy).attr("r", Number(s.lines.markerSize))
+                        .attr("fill", color).attr("stroke", this.hc ? this.hcBg : "#FFFFFF").attr("stroke-width", 1);
+                });
+            }
+            if (refsOn) this.drawRefs(gRefs, ser, y);
         });
-        const axisCat = cats.find(c => this.hasRole(c.source, "axis"));
-        const smCat = cats.find(c => this.hasRole(c.source, "smallMultiple"));
-        if (!axisCat) L.push("  (no hay categoría con rol axis)");
 
-        // Valores y grupos
-        const vals = cat.values;
-        const totalRows = cats.length && cats[0].values ? cats[0].values.length : 0;
-        L.push("", "FILAS TOTALES (combinaciones de categorías): " + totalRows);
-        if (!vals) {
-            L.push("VALUES: no llega categorical.values (¿sin medidas?).");
+        if (L.labels) this.drawEndLabels(L, yOf);
+        if (L.legend) this.drawLegend(L);
+        if (mode === "spark") this.drawSparkValue(L);
+        if (L.noticeH) this.drawNotices(L);
+        if (TEST_STAMP && W >= 200) {
+            this.svg.append("text").attr("x", W - 4).attr("y", H - 3).attr("text-anchor", "end").style("font-size", "9px")
+                .attr("fill", hc ? this.hcFg : "#A19F9D").text("[" + TEST_STAMP + "]");
+        }
+        this.drawOverlay(L);
+        this.paintState();
+    }
+
+    private layoutFor(W: number, H: number, mode: Layout["mode"], m: Model): Layout {
+        const s = this.settings;
+        const L: Layout = {
+            mode, W, H, left: 4, right: 4, top: 4, bottom: 4, plotW: 0, plotH: 0,
+            xAxis: false, yAxis: false, y2Axis: false, xTitle: false, yTitle: false, y2Title: false,
+            legend: false, legendRows: [], legendH: 0, labels: false, labelW: 0, y1W: 0, y2W: 0, noticeH: 0,
+        };
+        if (mode === "spark") {
+            const s0 = m.series[0];
+            const txt = s0 && s0.lastIndex >= 0 ? this.fmtShort(s0.values[s0.lastIndex], s0.formats[s0.lastIndex] ?? s0.format) : "";
+            const fs = Math.max(10, Math.min(22, H * 0.32));
+            L.right = W >= 120 && txt ? Math.min(W * 0.45, this.measure(txt, fs, true) + 10) : 4;
+            L.plotW = Math.max(1, W - L.left - L.right);
+            L.plotH = Math.max(1, H - 8);
             return L;
         }
-        const legendSrc = vals.source;
-        L.push("VALUES: columnas=" + vals.length + "  leyenda=" + (legendSrc ? "\"" + legendSrc.displayName + "\" roles=" + this.roles(legendSrc) + " tipo=" + this.typeOf(legendSrc) : "(sin leyenda)"));
-        const groups = vals.grouped();
-        L.push("GRUPOS (values.grouped()): " + groups.length);
-        let anyHighlight = false;
-        groups.forEach((g, gi) => {
-            const gname = g.name === undefined || g.name === null ? "(sin nombre)" : this.fmt(g.name as PrimitiveValue);
-            if (gi < 12) L.push("  grupo " + gi + " = " + gname + "  medidas=" + g.values.length);
-            g.values.forEach(col => {
-                const hl = col.highlights;
-                if (hl) anyHighlight = true;
-                if (gi < 12) {
-                    L.push("     · \"" + col.source.displayName + "\" rol=" + this.roles(col.source) +
-                        " format=" + (col.source.format || "-") + " tipo=" + this.typeOf(col.source) +
-                        " valores=" + col.values.length + " nulos=" + col.values.filter(v => v === null || v === undefined).length +
-                        (hl ? " highlights=" + hl.filter(v => v !== null && v !== undefined).length + "/" + hl.length : ""));
-                }
-            });
-        });
-        if (groups.length > 12) L.push("  … y " + (groups.length - 12) + " grupos más");
-        L.push("HIGHLIGHTS: " + (anyHighlight ? "SÍ llegan" : "no"));
-
-        // Primeras filas
-        L.push("", "PRIMERAS " + Math.min(MAX_ROWS, totalRows) + " FILAS:");
-        for (let r = 0; r < Math.min(MAX_ROWS, totalRows); r++) {
-            const parts: string[] = [];
-            parts.push("eje=" + (axisCat ? this.fmt(axisCat.values[r]) : "-"));
-            if (smCat) parts.push("panel=" + this.fmt(smCat.values[r]));
-            const gl: string[] = [];
-            groups.slice(0, MAX_GROUPS_PER_ROW).forEach(g => {
-                const vs = g.values.map((col: DataViewValueColumn) => this.roleName(col.source) + "=" + this.fmt(col.values[r]));
-                gl.push((legendSrc ? "[" + this.fmt(g.name as PrimitiveValue) + "] " : "") + vs.join(" "));
-            });
-            if (groups.length > MAX_GROUPS_PER_ROW) gl.push("…");
-            L.push("  " + r + ": " + parts.join("  ") + "  |  " + gl.join("  |  "));
+        if (mode === "mini") {
+            L.left = L.right = L.top = L.bottom = 6;
+            L.plotW = Math.max(1, W - 12);
+            L.plotH = Math.max(1, H - 12);
+            return L;
         }
+        const notes = this.notices(m);
+        L.noticeH = notes.length ? notes.length * 13 + 4 : 0;
+        const plotMin = Math.max(36, H * 0.45);
+        // Lo que el usuario activa es el MÁXIMO: si no cabe, se quita (no se encoge). Lo último en irse, las líneas.
+        const xfs = Number(s.xAxis.fontSize), yfs = Number(s.yAxis.fontSize), y2fs = Number(s.y2Axis.fontSize);
+        L.xAxis = !!s.xAxis.show;
+        L.xTitle = L.xAxis && !!s.xAxis.title && H >= 220;
+        L.yAxis = !!s.yAxis.show && m.series.some(x => x.role === "values" || !this.y2);
+        L.yTitle = L.yAxis && !!s.yAxis.title && W >= 300 && H >= 180;
+        L.y2Axis = !!this.y2 && !!s.y2Axis.show;
+        L.y2Title = L.y2Axis && !!s.y2Axis.title && W >= 300 && H >= 180;
+        // Legend
+        if (s.legend.show && H >= 170) {
+            const items = this.legendItems();
+            if (items.length > 1 || (items.length === 1 && m.legendCol)) {
+                const fs = Number(s.legend.fontSize);
+                const rows = this.wrapLegend(items, W - 8, fs);
+                const maxRows = H >= 320 ? 2 : 1;
+                L.legendRows = rows.slice(0, maxRows);
+                L.legendH = L.legendRows.length * (fs + 8) + 4;
+                L.legend = L.legendH <= H * 0.2;
+            }
+        }
+        // Medir ejes Y
+        const tickW = (y: d3.ScaleLinear<number, number>, fmt: string | undefined, fs: number) => {
+            const ticks = y.ticks(Math.max(2, Math.floor(H / 50)));
+            const tf = this.tickFormatter(ticks, fmt);
+            return Math.max(...ticks.map(tk => this.measure(tf(tk), fs))) + 8;
+        };
+        if (L.yAxis) L.y1W = Math.min(tickW(this.y1, this.yFormat(this.y2 ? "values" : (m.series.some(x => x.role === "values") ? "values" : "secondaryValues")), yfs), W * 0.25);
+        if (L.y2Axis) L.y2W = Math.min(tickW(this.y2, this.yFormat("secondaryValues"), y2fs), W * 0.2);
+        // Etiquetas al final
+        if (s.endLabels.show && W >= 320) {
+            const fs = Number(s.endLabels.fontSize);
+            const lab = this.labelCandidates().map(c => this.measure(c.text, fs)).reduce((a, b) => Math.max(a, b), 0);
+            if (lab > 0) { L.labels = true; L.labelW = Math.min(lab + 16, W * 0.3); }
+        }
+        const compute = () => {
+            L.top = 6 + (L.legend && s.legend.position === "top" ? L.legendH : 0);
+            L.bottom = 4 + L.noticeH + (L.legend && s.legend.position === "bottom" ? L.legendH : 0) +
+                (L.xAxis ? xfs + 8 : 0) + (L.xTitle ? xfs + 8 : 0);
+            L.left = 6 + (L.yAxis ? L.y1W : 0) + (L.yTitle ? yfs + 8 : 0);
+            L.right = 8 + (L.labels ? L.labelW : 0) + (L.y2Axis ? L.y2W : 0) + (L.y2Title ? y2fs + 8 : 0);
+            L.plotW = W - L.left - L.right;
+            L.plotH = H - L.top - L.bottom;
+        };
+        compute();
+        const drops: (() => boolean)[] = [
+            () => (L.legend ? (L.legend = false, true) : false),
+            () => (L.xTitle || L.yTitle || L.y2Title ? (L.xTitle = L.yTitle = L.y2Title = false, true) : false),
+            () => (L.labels ? (L.labels = false, true) : false),
+            () => (L.y2Axis ? (L.y2Axis = false, true) : false),
+            () => (L.xAxis ? (L.xAxis = false, true) : false),
+            () => (L.yAxis ? (L.yAxis = false, true) : false),
+        ];
+        for (const d of drops) {
+            if (L.plotH >= plotMin && L.plotW >= Math.max(60, W * 0.4)) break;
+            if (d()) compute();
+        }
+        L.plotW = Math.max(1, L.plotW);
+        L.plotH = Math.max(1, L.plotH);
         return L;
     }
 
-    // ---------------------------------------------------------------- utilidades
+    private axisColor(obj: string): string { return this.hc ? this.hcFg : String(this.settings[obj]?.color ?? "#605E5C"); }
 
-    private opKind(k: unknown): string {
-        const names: Record<number, string> = { 0: "Create", 1: "Append", 2: "Segment" };
-        return k === undefined ? "(undefined)" : String(k) + (names[k as number] ? " " + names[k as number] : "");
-    }
-
-    private roles(s: DataViewMetadataColumn): string {
-        return s.roles ? Object.keys(s.roles).filter(k => s.roles[k]).join("+") : "-";
-    }
-
-    private roleName(s: DataViewMetadataColumn): string {
-        const r = this.roles(s);
-        return r === "-" ? s.displayName : r;
-    }
-
-    private hasRole(s: DataViewMetadataColumn, role: string): boolean {
-        return !!(s.roles && s.roles[role]);
-    }
-
-    private typeOf(s: DataViewMetadataColumn): string {
-        const t = s.type;
-        if (!t) return "?";
-        const f: string[] = [];
-        if (t.dateTime) f.push("dateTime");
-        if (t.numeric) f.push("numeric");
-        if (t.integer) f.push("integer");
-        if (t.text) f.push("text");
-        if (t.bool) f.push("bool");
-        if (t.duration) f.push("duration");
-        return f.length ? f.join("/") : "otro";
-    }
-
-    private hierarchyInfo(s: DataViewMetadataColumn): string {
-        const e = s.expr as unknown as Record<string, unknown> | undefined;
-        if (!e) return "sin expr";
-        if (e.level !== undefined) {
-            return "SÍ nivel=\"" + String(e.level) + "\"" + (e.hierarchy !== undefined ? " jerarquía=\"" + String(e.hierarchy) + "\"" : "");
+    private drawTimeAxis(sx: d3.ScaleTime<number, number>, L: Layout): void {
+        const s = this.settings, m = this.model;
+        const fs = Number(s.xAxis.fontSize);
+        const count = Math.max(2, Math.floor(L.plotW / 90));
+        let ticks = sx.ticks(count);
+        const step = ticks.length > 1 ? ticks[1].getTime() - ticks[0].getTime() : m.cadence;
+        const day = 86400000;
+        // Granularidad: nunca más fina que la cadencia de los datos (un eje mensual no enseña días).
+        const unit = Math.max(step, m.cadence);
+        const opts: Intl.DateTimeFormatOptions = unit >= 300 * day ? { year: "numeric" }
+            : unit >= 27 * day ? { month: "short", year: "numeric" }
+            : { day: "numeric", month: "short" };
+        if (m.cadence >= 27 * day) ticks = ticks.filter(t => t.getDate() === 1);
+        const g = this.svg.append("g").attr("class", "lc-x lc-axis");
+        const y = L.top + L.plotH;
+        const color = this.axisColor("xAxis");
+        let lastRight = -Infinity;
+        for (const tk of ticks) {
+            const x = sx(tk);
+            const label = this.intlDate(tk, opts);
+            const w = this.measure(label, fs);
+            if (x - w / 2 < lastRight + 6 || x - w / 2 < 0 || x + w / 2 > L.W) continue;
+            lastRight = x + w / 2;
+            g.append("line").attr("x1", x).attr("x2", x).attr("y1", y).attr("y2", y + 4).attr("stroke", this.hc ? this.hcFg : String(s.yAxis.gridColor));
+            g.append("text").attr("x", x).attr("y", y + 5 + fs * 0.8).attr("text-anchor", "middle").style("font-size", fs + "px").attr("fill", color).text(label);
         }
-        const kind = e.kind !== undefined ? String(e.kind) : (e._kind !== undefined ? String(e._kind) : "?");
-        return "no (expr kind=" + kind + ")";
+        this.drawXTitle(L, g);
     }
 
-    private key(v: PrimitiveValue): string {
-        return v instanceof Date ? "d" + v.getTime() : typeof v + ":" + String(v);
+    private drawCatAxis(L: Layout): void {
+        const s = this.settings, m = this.model;
+        const fs = Number(s.xAxis.fontSize);
+        const K = m.keys.length;
+        const labels = m.keys.map((_k, i) => this.keyLabel(i));
+        const widest = Math.max(...labels.map(l => this.measure(l, fs)));
+        const slot = L.plotW / Math.max(1, K);
+        const maxW = Math.max(30, Math.min(widest, 140));
+        const every = Math.max(1, Math.ceil((maxW + 8) / slot));
+        const g = this.svg.append("g").attr("class", "lc-x lc-axis");
+        const y = L.top + L.plotH;
+        const color = this.axisColor("xAxis");
+        for (let i = 0; i < K; i += every) {
+            const x = this.x(m.keys[i].pos);
+            const room = Math.max(20, Math.min(slot * every - 6, 160));
+            g.append("text").attr("x", x).attr("y", y + 5 + fs * 0.8).attr("text-anchor", "middle").style("font-size", fs + "px")
+                .attr("fill", color).text(this.fit(labels[i], fs, room)).append("title").text(labels[i]);
+        }
+        this.drawXTitle(L, g);
     }
 
-    private fmt(v: PrimitiveValue): string {
-        if (v === null || v === undefined) return "∅";
-        if (v instanceof Date) return v.toISOString().slice(0, 10);
-        if (typeof v === "number") return String(Number(v.toPrecision(6)));
-        return String(v);
+    private drawXTitle(L: Layout, g: Sel<SVGGElement> | d3.Selection<SVGGElement, unknown, null, undefined>): void {
+        if (!L.xTitle) return;
+        const fs = Number(this.settings.xAxis.fontSize);
+        g.append("text").attr("class", "lc-axis-title").attr("x", L.left + L.plotW / 2).attr("y", L.top + L.plotH + fs * 2 + 12)
+            .attr("text-anchor", "middle").style("font-size", fs + "px").style("font-weight", "600").attr("fill", this.axisColor("xAxis"))
+            .text(this.fit(this.model.axisName, fs, L.plotW));
     }
 
-    private json(v: unknown): string {
-        try { return JSON.stringify(v).slice(0, 200); } catch { return String(v); }
+    private drawYAxes(L: Layout, hasY1: boolean, hasY2: boolean): void {
+        const s = this.settings, m = this.model;
+        const count = Math.max(2, Math.floor(L.plotH / 40));
+        const gridOn = !!s.yAxis.grid;
+        const gridColor = this.hc ? this.hcFg : String(s.yAxis.gridColor);
+        const g1 = this.svg.append("g").attr("class", "lc-y lc-axis");
+        const primRole = this.y2 ? "values" : (hasY1 ? "values" : "secondaryValues");
+        const fmt1 = this.yFormat(primRole);
+        const t1 = this.y1.ticks(count);
+        const tf1 = this.tickFormatter(t1, fmt1);
+        const fs1 = Number(s.yAxis.fontSize);
+        for (const tk of t1) {
+            const y = this.y1(tk);
+            if (gridOn) g1.append("line").attr("class", "lc-grid").attr("x1", L.left).attr("x2", L.left + L.plotW).attr("y1", y).attr("y2", y)
+                .attr("stroke", gridColor).attr("stroke-width", 1).attr("stroke-dasharray", this.hc ? "1,3" : null);
+            if (L.yAxis) g1.append("text").attr("x", L.left - 6).attr("y", y).attr("dy", "0.32em").attr("text-anchor", "end")
+                .style("font-size", fs1 + "px").attr("fill", this.axisColor("yAxis")).text(tf1(tk));
+        }
+        if (L.yTitle) {
+            const names = Array.from(new Set(m.series.filter(x => x.role === primRole).map(x => x.measure))).join(", ");
+            const x = 6 + fs1 * 0.8;
+            g1.append("text").attr("class", "lc-axis-title").attr("transform", `translate(${x},${L.top + L.plotH / 2}) rotate(-90)`)
+                .attr("text-anchor", "middle").style("font-size", fs1 + "px").style("font-weight", "600").attr("fill", this.axisColor("yAxis"))
+                .text(this.fit(names, fs1, L.plotH));
+        }
+        if (this.y2 && L.y2Axis && hasY2) {
+            const g2 = this.svg.append("g").attr("class", "lc-y2 lc-axis");
+            const fs2 = Number(s.y2Axis.fontSize);
+            const fmt2 = this.yFormat("secondaryValues");
+            const t2 = this.y2.ticks(count);
+            const tf2 = this.tickFormatter(t2, fmt2);
+            const sec = m.series.filter(x => x.role === "secondaryValues");
+            // El título va en el color de su serie (si es una sola): así se sabe qué línea lee el eje derecho.
+            const tcolor = this.hc ? this.hcFg : (sec.length === 1 ? sec[0].color : this.axisColor("yAxis"));
+            const x0 = L.W - L.right + (L.labels ? L.labelW : 0) + 6;
+            for (const tk of t2) {
+                g2.append("text").attr("x", x0).attr("y", this.y2(tk)).attr("dy", "0.32em").attr("text-anchor", "start")
+                    .style("font-size", fs2 + "px").attr("fill", this.axisColor("yAxis")).text(tf2(tk));
+            }
+            if (L.y2Title) {
+                const names = Array.from(new Set(sec.map(x => x.measure))).join(", ");
+                const x = L.W - 6 - fs2 * 0.3;
+                g2.append("text").attr("class", "lc-axis-title").attr("transform", `translate(${x},${L.top + L.plotH / 2}) rotate(90)`)
+                    .attr("text-anchor", "middle").style("font-size", fs2 + "px").style("font-weight", "600").attr("fill", tcolor)
+                    .text(this.fit(names, fs2, L.plotH));
+            }
+        }
     }
 
-    private paint(lines: string[]): void {
-        while (this.root.firstChild) this.root.removeChild(this.root.firstChild);
-        lines.forEach((t, i) => {
-            const d = document.createElement("div");
-            d.textContent = t === "" ? " " : t;
-            if (i === 0) { d.style.fontWeight = "bold"; d.style.color = "#1F4E79"; }
-            else if (/^[A-ZÁÉÍÓÚ ]+[:(]/.test(t)) d.style.fontWeight = "bold";
-            if (t.indexOf("LLEGA →") >= 0) d.style.color = "#C00000";
-            this.root.appendChild(d);
+    private refName(kind: RefKind): string {
+        const [k, d] = REF_DEFAULT_NAME[kind];
+        return this.t(k, d);
+    }
+
+    /** Plan, año anterior y previsión: líneas finas discontinuas, grises (o del color de su serie). Sin banda ni Δ (Pro). */
+    private drawRefs(g: Sel<SVGGElement>, ser: Series, y: d3.ScaleLinear<number, number>): void {
+        const s = this.settings, m = this.model;
+        const color = this.hc ? this.hcFg : (s.references.colorMode === "series" ? ser.color : String(s.references.color));
+        const width = Number(s.references.width);
+        const line = d3.line<Pt>().x(p => this.x(p.pos)).y(p => y(p.v));
+        for (const r of ser.refs) {
+            let values = r.values;
+            let from = 0;
+            if (r.kind === "forecast" && ser.lastIndex >= 0 && r.values.some((v, k) => v !== null && k > ser.lastIndex)) {
+                // La previsión sigue desde el último real.
+                values = r.values.slice();
+                values[ser.lastIndex] = ser.values[ser.lastIndex];
+                from = ser.lastIndex;
+            }
+            const own: number[] = [];
+            values.forEach((v, k) => { if (v !== null && k >= from) own.push(m.keys[k].pos); });
+            const cad = cadenceOf(own) || m.cadence;
+            const segs = segmentsOf(values, m.keys, s.lines.missing === "connect" ? "connect" : "break", cad, m.cadence, m.isTime, from);
+            const gg = g.append("g").attr("class", "lc-ref").attr("data-id", ser.id).attr("data-kind", r.kind);
+            for (const seg of segs) {
+                if (seg.length > 1) {
+                    gg.append("path").attr("d", line(seg)).attr("fill", "none").attr("stroke", color).attr("stroke-width", this.hc ? 1 : width)
+                        .attr("stroke-dasharray", REF_DASH[r.kind]).attr("opacity", this.hc ? 1 : 0.95);
+                } else {
+                    gg.append("circle").attr("cx", this.x(seg[0].pos)).attr("cy", y(seg[0].v)).attr("r", Math.max(width, 1.5)).attr("fill", color);
+                }
+            }
+        }
+    }
+
+    // ── Etiquetas al final ───────────────────────────────────────────────────
+
+    private labelCandidates(): { s: Series; text: string; v: number }[] {
+        const m = this.model, s = this.settings;
+        const content = String(s.endLabels.content);
+        const lastPos = m.keys[m.keys.length - 1]?.pos;
+        const out = m.series.filter(x => x.lastIndex >= 0).map(x => {
+            const v = x.values[x.lastIndex];
+            const val = this.fmtShort(v, x.formats[x.lastIndex] ?? x.format);
+            let text = content === "value" ? val : content === "name" ? x.name : x.name + "  " + val;
+            // Si su último valor es anterior al final del eje, se dice cuándo.
+            if (content !== "name" && m.keys[x.lastIndex].pos < lastPos) text += " · " + this.keyLabel(x.lastIndex);
+            return { s: x, text, v };
+        });
+        out.sort((a, b) => b.v - a.v);
+        return out.slice(0, Math.max(1, Number(s.endLabels.maxLabels)));
+    }
+
+    private drawEndLabels(L: Layout, yOf: (x: Series) => d3.ScaleLinear<number, number>): void {
+        const s = this.settings;
+        const fs = Number(s.endLabels.fontSize);
+        const gap = fs * 1.25;
+        const items = this.labelCandidates().map(c => ({ ...c, want: yOf(c.s)(c.v), y: 0 }));
+        items.sort((a, b) => a.want - b.want);
+        // Anticolisión: de arriba abajo empujando, y si se sale por abajo, de abajo arriba.
+        const top = L.top + fs / 2, bottom = L.top + L.plotH - fs / 2;
+        let prev = -Infinity;
+        for (const it of items) { it.y = Math.max(it.want, prev + gap, top); prev = it.y; }
+        let next = Infinity;
+        for (let i = items.length - 1; i >= 0; i--) { items[i].y = Math.min(items[i].y, next - gap, bottom); next = items[i].y; }
+        const g = this.svg.append("g").attr("class", "lc-endlabels");
+        const x0 = L.left + L.plotW;
+        const tx = x0 + 12;
+        for (const it of items) {
+            const px = this.x(this.model.keys[it.s.lastIndex].pos);
+            const color = this.hc ? this.hcFg : (s.endLabels.seriesColor ? this.readable(it.s.color, String(s.endLabels.color)) : String(s.endLabels.color));
+            const lg = g.append("g").attr("class", "lc-endlabel").attr("data-id", it.s.id);
+            // Línea guía: del último punto a la etiqueta, si está desplazada o el punto no llega al final.
+            if (Math.abs(it.y - it.want) > 1.5 || px < x0 - 2) {
+                lg.append("polyline").attr("points", `${px},${it.want} ${x0 + 3},${it.want} ${tx - 2},${it.y}`).attr("fill", "none")
+                    .attr("stroke", this.hc ? this.hcFg : it.s.color).attr("stroke-width", 0.8).attr("opacity", 0.6)
+                    .attr("stroke-dasharray", px < x0 - 2 ? "2,2" : null);
+            }
+            const txt = this.fit(it.text, fs, L.labelW - 14);
+            lg.append("text").attr("x", tx).attr("y", it.y).attr("dy", "0.32em").style("font-size", fs + "px").attr("fill", color)
+                .style("font-weight", "600").text(txt).append("title").text(it.text);
+        }
+    }
+
+    /** El color de la serie si se lee sobre el fondo del informe (contraste ≥ 3:1); si no, el color de texto. */
+    private readable(color: string, fallback: string): string {
+        const bg = (this.host.colorPalette as any)?.background?.value ?? "#FFFFFF";
+        return contrast(color, bg) >= 3 ? color : fallback;
+    }
+
+    private drawSparkValue(L: Layout): void {
+        const s0 = this.model.series[0];
+        if (!s0 || s0.lastIndex < 0 || L.right < 20) return;
+        const fs = Math.max(10, Math.min(22, L.H * 0.32));
+        const v = s0.values[s0.lastIndex];
+        this.svg.append("text").attr("class", "lc-endlabel").attr("x", L.W - 4).attr("y", L.H / 2).attr("dy", "0.32em")
+            .attr("text-anchor", "end").style("font-size", fs + "px").style("font-weight", "600")
+            .attr("fill", this.hc ? this.hcFg : this.readable(s0.color, String(this.settings.endLabels.color))).text(this.fmtShort(v, s0.formats[s0.lastIndex] ?? s0.format));
+    }
+
+    // ── Leyenda ──────────────────────────────────────────────────────────────
+
+    private legendItems(): LegendItem[] {
+        const m = this.model, s = this.settings;
+        const fs = Number(s.legend.fontSize);
+        const items: LegendItem[] = m.series.map((x, i) => ({ label: x.name, color: x.color, kind: "series" as const,
+            dash: this.hc ? HC_DASH[i % HC_DASH.length] : "", series: x, w: 0, idx: i }));
+        if (s.references.show && s.references.legend) {
+            for (const k of m.refKinds) items.push({ label: this.refName(k), color: this.hc ? this.hcFg : String(s.references.color),
+                kind: "ref", dash: REF_DASH[k], ref: k, w: 0, idx: -1 });
+        }
+        for (const it of items) it.w = 22 + Math.min(this.measure(it.label, fs), 160) + 12;
+        return items;
+    }
+
+    private wrapLegend(items: LegendItem[], maxW: number, fs: number): LegendItem[][] {
+        const rows: LegendItem[][] = [[]];
+        let w = 0;
+        for (const it of items) {
+            if (w + it.w > maxW && rows[rows.length - 1].length) { rows.push([]); w = 0; }
+            rows[rows.length - 1].push(it);
+            w += it.w;
+        }
+        void fs;
+        return rows;
+    }
+
+    private drawLegend(L: Layout): void {
+        const s = this.settings;
+        const fs = Number(s.legend.fontSize);
+        const all = this.legendItems();
+        const shown = L.legendRows.reduce((a, r) => a + r.length, 0);
+        const g = this.svg.append("g").attr("class", "lc-legend").attr("role", "list");
+        const y0 = s.legend.position === "top" ? 4 : L.H - L.noticeH - L.legendH + 2;
+        const color = this.hc ? this.hcFg : String(s.legend.color);
+        L.legendRows.forEach((row, ri) => {
+            let x = 6;
+            const cy = y0 + ri * (fs + 8) + fs / 2 + 4;
+            row.forEach((it, ii) => {
+                const last = ri === L.legendRows.length - 1 && ii === row.length - 1 && shown < all.length;
+                const ig = g.append("g").attr("class", "lc-legend-item").attr("role", "listitem")
+                    .attr("data-id", it.series ? it.series.id : "ref:" + it.ref);
+                ig.append("line").attr("x1", x).attr("x2", x + 16).attr("y1", cy).attr("y2", cy).attr("stroke", it.color)
+                    .attr("stroke-width", it.kind === "ref" ? 1.5 : 2.5).attr("stroke-dasharray", it.dash || null);
+                const extra = last ? "  " + this.tf("UI_More", "+{0} more", String(all.length - shown)) : "";
+                const lbl = this.fit(it.label, fs, 160);
+                ig.append("text").attr("x", x + 21).attr("y", cy).attr("dy", "0.32em").style("font-size", fs + "px").attr("fill", color)
+                    .text(lbl + extra).append("title").text(it.label);
+                if (it.series) {
+                    const ser = it.series;
+                    ig.style("cursor", "pointer")
+                        .on("mouseenter", () => { this.hoverId = ser.id; this.paintState(); })
+                        .on("mouseleave", () => { this.hoverId = null; this.paintState(); })
+                        .on("click", (e: MouseEvent) => {
+                            e.stopPropagation();
+                            if (!this.canInteract) return;
+                            if (this.model.legendCol) this.toggle(this.seriesKey(ser), this.seriesId(ser), e.ctrlKey || e.metaKey);
+                        });
+                }
+                x += it.w;
+            });
         });
     }
+
+    private drawNotices(L: Layout): void {
+        const notes = this.notices(this.model);
+        const g = this.svg.append("g").attr("class", "lc-notice").attr("role", "status");
+        notes.forEach((n, i) => {
+            const t = g.append("text").attr("x", 6).attr("y", L.H - L.noticeH + 12 + i * 13).style("font-size", "10px")
+                .attr("fill", this.hc ? this.hcFg : (i === 0 && this.model.segment ? "#A4262C" : "#605E5C"))
+                .text("⚠ " + this.fit(n, 10, L.W - 20));
+            t.append("title").text(n);
+        });
+    }
+
+    private message(W: number, H: number, text: string): void {
+        const m = this.model;
+        this.svg.append("text").attr("class", "lc-msg-text").attr("x", W / 2).attr("y", H / 2).attr("text-anchor", "middle")
+            .style("font-size", "12px").attr("fill", this.hc ? this.hcFg : "#605E5C").text(this.fit(text, 12, W - 16));
+        if (m && m.segment) {
+            this.svg.append("text").attr("x", W / 2).attr("y", H / 2 + 18).attr("text-anchor", "middle").style("font-size", "10px")
+                .attr("fill", this.hc ? this.hcFg : "#A4262C").text(this.fit(this.notices(m)[0], 10, W - 16));
+        }
+    }
+
+    // ── Interacción ──────────────────────────────────────────────────────────
+
+    private drawOverlay(L: Layout): void {
+        const r = this.svg.append("rect").attr("class", "lc-overlay").attr("x", L.left).attr("y", L.top)
+            .attr("width", L.plotW).attr("height", L.plotH).attr("fill", "transparent")
+            .style("pointer-events", this.formatMode ? "none" : "all");
+        r.on("pointermove", (e: PointerEvent) => this.onMove(e))
+            .on("pointerleave", () => { this.hoverId = null; this.drawCross(-1); this.hideTip(); this.paintState(); })
+            .on("click", (e: MouseEvent) => this.onClick(e))
+            .on("contextmenu", (e: MouseEvent) => this.onContext(e));
+        const node = this.svg.node() as SVGSVGElement;
+        node.setAttribute("tabindex", L.mode === "full" ? "0" : "-1");
+        node.setAttribute("role", "application");
+        node.setAttribute("aria-roledescription", this.t("UI_AriaChart", "line chart"));
+        node.setAttribute("aria-label", this.tf("UI_AriaSummary", "{0} series over {1} points. Arrow keys move between points and series, Enter selects.",
+            String(this.model.series.length), String(this.model.keys.length)));
+    }
+
+    /** Clave del eje más cercana a una x de pantalla. */
+    private nearestKey(px: number): number {
+        const m = this.model;
+        const K = m.keys.length;
+        let lo = 0, hi = K - 1;
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (this.x(m.keys[mid].pos) < px) lo = mid; else hi = mid; }
+        return Math.abs(this.x(m.keys[lo].pos) - px) <= Math.abs(this.x(m.keys[hi].pos) - px) ? lo : hi;
+    }
+
+    /** y de la serie bajo una x (interpolada entre sus puntos con valor vecinos del mismo tramo). */
+    private yAt(d: Drawn, px: number): number | null {
+        for (const seg of d.segs) {
+            if (!seg.length) continue;
+            const a0 = this.x(seg[0].pos), a1 = this.x(seg[seg.length - 1].pos);
+            if (px < a0 - 3 || px > a1 + 3) continue;
+            if (seg.length === 1) return d.y(seg[0].v);
+            let i = 1;
+            while (i < seg.length - 1 && this.x(seg[i].pos) < px) i++;
+            const p = seg[i - 1], q = seg[i];
+            const xp = this.x(p.pos), xq = this.x(q.pos);
+            const t = xq === xp ? 0 : Math.max(0, Math.min(1, (px - xp) / (xq - xp)));
+            return d.y(p.v + (q.v - p.v) * t);
+        }
+        return null;
+    }
+
+    private hit(px: number, py: number): { k: number; d: Drawn | null; onPoint: boolean } {
+        const k = this.nearestKey(px);
+        let best: Drawn | null = null, bestDist = Infinity;
+        for (const d of this.drawn) {
+            const y = this.yAt(d, px);
+            if (y === null) continue;
+            const dist = Math.abs(y - py);
+            if (dist < bestDist) { bestDist = dist; best = d; }
+        }
+        const near = best && bestDist <= 12 ? best : null;
+        let onPoint = false;
+        if (near) {
+            const v = near.s.values[k];
+            if (v !== null) onPoint = Math.hypot(this.x(this.model.keys[k].pos) - px, near.y(v) - py) <= 10;
+        }
+        return { k, d: near, onPoint };
+    }
+
+    private localXY(e: MouseEvent): [number, number] {
+        const r = (this.svg.node() as SVGSVGElement).getBoundingClientRect();
+        return [e.clientX - r.left, e.clientY - r.top];
+    }
+
+    private onMove(e: PointerEvent): void {
+        if (!this.model || !this.L) return;
+        const [px, py] = this.localXY(e);
+        const h = this.hit(px, py);
+        const id = h.d ? h.d.s.id : null;
+        if (id !== this.hoverId) { this.hoverId = id; this.paintState(); }
+        this.drawCross(h.k);
+        this.showTip(h.k, h.d ? h.d.s : null, px, py);
+    }
+
+    private onClick(e: MouseEvent): void {
+        e.stopPropagation();
+        if (!this.canInteract || !this.model) return;
+        const [px, py] = this.localXY(e);
+        const h = this.hit(px, py);
+        const multi = e.ctrlKey || e.metaKey;
+        const m = this.model;
+        if (h.d && (h.onPoint || !m.legendCol)) {
+            const id = this.pointId(h.k, h.d.s);
+            if (id) this.toggle(this.pointKey(h.k, h.d.s), id, multi);
+        } else if (h.d && m.legendCol) {
+            this.toggle(this.seriesKey(h.d.s), this.seriesId(h.d.s), multi);
+        } else {
+            this.selKeys.clear();
+            this.selectionManager.clear().then(() => this.paintState());
+            this.paintState();
+        }
+    }
+
+    private onContext(e: MouseEvent): void {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!this.canInteract || !this.model) return;
+        const [px, py] = this.localXY(e);
+        const h = this.hit(px, py);
+        const id = h.d ? (h.onPoint || !this.model.legendCol ? this.pointId(h.k, h.d.s) : this.seriesId(h.d.s)) : null;
+        this.selectionManager.showContextMenu(id ?? ({} as ISelectionId), { x: e.clientX, y: e.clientY });
+    }
+
+    private drawCross(k: number): void {
+        const g = this.svg.select<SVGGElement>(".lc-cross");
+        g.selectAll("*").remove();
+        if (k < 0 || !this.model || !this.L || this.L.mode === "spark") return;
+        const L = this.L, m = this.model;
+        const x = this.x(m.keys[k].pos);
+        const color = this.hc ? this.hcFg : "#8A8886";
+        g.append("line").attr("x1", x).attr("x2", x).attr("y1", L.top).attr("y2", L.top + L.plotH).attr("stroke", color)
+            .attr("stroke-width", 1).attr("stroke-dasharray", "3,3").style("pointer-events", "none");
+        this.drawn.forEach((d, i) => {
+            const v = d.s.values[k];
+            if (v === null) return;
+            const focused = this.hasFocus && i === this.focusSeries;
+            g.append("circle").attr("cx", x).attr("cy", d.y(v)).attr("r", focused ? 5.5 : 3.5)
+                .attr("fill", this.hc ? this.hcBg : "#FFFFFF").attr("stroke", this.hc ? (focused ? this.hcSel : this.hcFg) : d.s.color)
+                .attr("stroke-width", focused ? 3 : 2).style("pointer-events", "none");
+        });
+    }
+
+    private tipItems(k: number, focus: Series | null): VisualTooltipDataItem[] {
+        const m = this.model;
+        const items: VisualTooltipDataItem[] = [{ displayName: m.axisName, value: this.keyLabel(k) }];
+        const list = m.series.filter(s => s.rows[k] >= 0 || s.values[k] !== null).slice();
+        list.sort((a, b) => (a === focus ? -1 : b === focus ? 1 : (b.values[k] ?? -Infinity) - (a.values[k] ?? -Infinity)));
+        for (const s of list) {
+            if (items.length >= 24) break;
+            if (s.values[k] !== null) items.push({ displayName: s.name, value: this.fmtFull(s.values[k], s.formats[k] ?? s.format), color: s.color });
+            for (const r of s.refs) {
+                if (r.values[k] === null) continue;
+                const nm = m.legendCol ? r.name + " · " + (s.legend ?? "") : r.name;
+                items.push({ displayName: nm, value: this.fmtFull(r.values[k], r.formats[k] ?? r.format), color: this.hc ? this.hcFg : "#8A8886" });
+            }
+        }
+        const rowOf = (focus ?? list[0])?.rows[k] ?? -1;
+        if (rowOf >= 0) for (const c of m.tooltipCols) {
+            const v = c.values[rowOf];
+            items.push({ displayName: c.name, value: typeof v === "number" ? this.fmtFull(v, c.format) : String(v ?? "") });
+        }
+        return items;
+    }
+
+    private showTip(k: number, focus: Series | null, px: number, py: number): void {
+        const ts: any = this.host.tooltipService;
+        if (!ts || (ts.enabled && !ts.enabled())) return;
+        const ids: ISelectionId[] = [];
+        const s = focus ?? this.drawn[0]?.s;
+        if (s) { const id = this.pointId(k, s); if (id) ids.push(id); }
+        ts.show({ dataItems: this.tipItems(k, focus), identities: ids, coordinates: [px, py], isTouchEvent: false });
+    }
+
+    private hideTip(): void {
+        try { this.host.tooltipService?.hide({ immediately: true, isTouchEvent: false }); } catch { /* nada */ }
+    }
+
+    // ── Selección ────────────────────────────────────────────────────────────
+
+    private seriesKey(s: Series): string { return "s␟" + (s.legend ?? ""); }
+    private pointKey(k: number, s: Series): string { return "p␟" + this.model.keys[k].key + "␟" + (this.model.legendCol ? (s.legend ?? "") : ""); }
+
+    /** Serie = el valor de leyenda (filtra por esa columna). */
+    private seriesId(s: Series): ISelectionId {
+        const m = this.model;
+        const row = s.rows.find(r => r >= 0);
+        return this.host.createSelectionIdBuilder().withCategory(m.legendCol, row).createSelectionId();
+    }
+
+    /**
+     * Punto = eje × leyenda. Sin leyenda, solo el eje: la identidad del valor del eje cubre TODAS las filas de esa
+     * fecha (regla filtros-todas-las-filas), también las de otros paneles.
+     */
+    private pointId(k: number, s: Series): ISelectionId | null {
+        const m = this.model;
+        const row = s.rows[k];
+        if (row < 0) return null;
+        let b = this.host.createSelectionIdBuilder();
+        for (const c of m.axisCols) b = b.withCategory(c, row);
+        if (m.legendCol) b = b.withCategory(m.legendCol, row);
+        return b.createSelectionId();
+    }
+
+    /** select(lista) no alterna: la selección se calcula aquí y se pasa entera (o clear si queda vacía). */
+    private toggle(key: string, id: ISelectionId, multi: boolean): void {
+        if (multi) { if (this.selKeys.has(key)) this.selKeys.delete(key); else this.selKeys.set(key, id); }
+        else if (this.selKeys.size === 1 && this.selKeys.has(key)) this.selKeys.clear();
+        else { this.selKeys.clear(); this.selKeys.set(key, id); }
+        if (this.selKeys.size) this.selectionManager.select(Array.from(this.selKeys.values()), false);
+        else this.selectionManager.clear();
+        this.paintState();
+    }
+
+    /** Marcadores / selección externa: se casa por equals (getKey no coincide entre clic y marcador). */
+    private restoreSelection(ids: ISelectionId[]): void {
+        const m = this.model;
+        if (!m) { this.pendingRestore = ids; return; }
+        this.pendingRestore = null;
+        this.selKeys.clear();
+        if (!ids.length) return;
+        const eq = (a: ISelectionId, b: ISelectionId) => { try { return a.equals(b) || b.equals(a); } catch { return false; } };
+        const left = ids.slice();
+        if (m.legendCol) for (const s of m.series) {
+            const id = this.seriesId(s);
+            if (left.some(x => eq(x, id))) this.selKeys.set(this.seriesKey(s), id);
+        }
+        if (this.selKeys.size === ids.length) return;
+        const firsts = m.legendCol ? m.series.filter((s, i, a) => a.findIndex(o => o.legend === s.legend) === i) : m.series.slice(0, 1);
+        for (const s of firsts) for (let k = 0; k < m.keys.length; k++) {
+            const id = this.pointId(k, s);
+            if (id && left.some(x => eq(x, id))) this.selKeys.set(this.pointKey(k, s), id);
+        }
+    }
+
+    private pruneSelection(m: Model): void {
+        if (!this.selKeys.size) return;
+        const valid = new Set<string>();
+        for (const s of m.series) {
+            valid.add(this.seriesKey(s));
+            for (let k = 0; k < m.keys.length; k++) if (s.rows[k] >= 0) valid.add(this.pointKey(k, s));
+        }
+        for (const k of Array.from(this.selKeys.keys())) if (!valid.has(k)) this.selKeys.delete(k);
+    }
+
+    /** Opacidades: resaltado al pasar, selección de serie y anillos de los puntos seleccionados. */
+    private paintState(): void {
+        const m = this.model;
+        if (!m || !this.L) return;
+        const selSeries = new Set<string>();
+        const selPoints: [number, Series][] = [];
+        for (const key of this.selKeys.keys()) {
+            const parts = key.split("␟");
+            if (parts[0] === "s") selSeries.add(parts[1]);
+        }
+        for (const d of this.drawn) for (let k = 0; k < m.keys.length; k++) {
+            if (d.s.values[k] !== null && this.selKeys.has(this.pointKey(k, d.s))) selPoints.push([k, d.s]);
+        }
+        const anySeries = selSeries.size > 0;
+        const anyPoint = selPoints.length > 0;
+        this.svg.selectAll<SVGGElement, unknown>(".lc-series, .lc-ref, .lc-endlabel").each((_d, i, nodes) => {
+            const el = nodes[i];
+            const id = el.getAttribute("data-id");
+            const ser = m.series.find(s => s.id === id);
+            let op = 1;
+            if (ser) {
+                if (anySeries && !selSeries.has(ser.legend ?? "")) op = 0.3;
+                if (anyPoint && !anySeries && !selPoints.some(p => p[1].legend === ser.legend)) op = 0.45;
+                if (this.hoverId && this.hoverId !== id) op = Math.min(op, 0.2);
+            }
+            el.setAttribute("opacity", String(op));
+        });
+        const g = this.svg.select<SVGGElement>(".lc-sel");
+        g.selectAll("*").remove();
+        const ring = this.hc ? this.hcSel : "#252423";
+        for (const [k, s] of selPoints) {
+            const d = this.drawn.find(x => x.s === s);
+            g.append("circle").attr("cx", this.x(m.keys[k].pos)).attr("cy", d.y(s.values[k])).attr("r", 5.5)
+                .attr("fill", s.color).attr("stroke", ring).attr("stroke-width", 2).style("pointer-events", "none");
+        }
+    }
+
+    // ── Teclado: una parada de Tab, flechas entre puntos y series, Enter selecciona ──
+
+    private keyboardSeries(k: number): Drawn[] {
+        return this.drawn.filter(d => d.s.values[k] !== null).sort((a, b) => a.y(a.s.values[k]) - b.y(b.s.values[k]));
+    }
+
+    private onFocus(): void {
+        const m = this.model;
+        if (!m || !this.L || !m.keys.length) return;
+        if (this.focusKey < 0) this.focusKey = m.keys.length - 1;
+        this.announce();
+    }
+
+    private announce(): void {
+        const m = this.model;
+        const k = this.focusKey;
+        const list = this.keyboardSeries(k);
+        if (!list.length) { this.drawCross(k); this.live.textContent = this.keyLabel(k); return; }
+        this.focusSeries = Math.max(0, Math.min(this.focusSeries, list.length - 1));
+        const d = list[this.focusSeries];
+        const idx = this.drawn.indexOf(d);
+        const save = this.focusSeries;
+        this.focusSeries = idx;
+        this.drawCross(k);
+        this.focusSeries = save;
+        const v = d.s.values[k];
+        const x = this.x(m.keys[k].pos), y = d.y(v);
+        this.showTip(k, d.s, x, y);
+        this.live.textContent = d.s.name + ", " + this.keyLabel(k) + ": " + this.fmtFull(v, d.s.formats[k] ?? d.s.format);
+    }
+
+    private onKey(e: KeyboardEvent): void {
+        const m = this.model;
+        if (!m || !this.L || !m.keys.length) return;
+        const K = m.keys.length;
+        let handled = true;
+        switch (e.key) {
+            case "ArrowRight": this.focusKey = Math.min(K - 1, this.focusKey + 1); break;
+            case "ArrowLeft": this.focusKey = Math.max(0, this.focusKey - 1); break;
+            case "Home": this.focusKey = 0; break;
+            case "End": this.focusKey = K - 1; break;
+            case "PageUp": this.focusKey = Math.max(0, this.focusKey - Math.max(1, Math.round(K / 10))); break;
+            case "PageDown": this.focusKey = Math.min(K - 1, this.focusKey + Math.max(1, Math.round(K / 10))); break;
+            case "ArrowUp": this.focusSeries = Math.max(0, this.focusSeries - 1); break;
+            case "ArrowDown": this.focusSeries = this.focusSeries + 1; break;
+            case "Enter": case " ": {
+                const d = this.keyboardSeries(this.focusKey)[this.focusSeries];
+                if (d && this.canInteract) { const id = this.pointId(this.focusKey, d.s); if (id) this.toggle(this.pointKey(this.focusKey, d.s), id, e.ctrlKey || e.metaKey); }
+                break;
+            }
+            case "Escape":
+                if (this.canInteract) { this.selKeys.clear(); this.selectionManager.clear(); this.paintState(); }
+                break;
+            case "ContextMenu": case "F10": {
+                if (e.key === "F10" && !e.shiftKey) { handled = false; break; }
+                const d = this.keyboardSeries(this.focusKey)[this.focusSeries];
+                const r = (this.svg.node() as SVGSVGElement).getBoundingClientRect();
+                if (d && this.canInteract) {
+                    this.selectionManager.showContextMenu(this.pointId(this.focusKey, d.s) ?? ({} as ISelectionId),
+                        { x: r.left + this.x(m.keys[this.focusKey].pos), y: r.top + d.y(d.s.values[this.focusKey]) });
+                }
+                break;
+            }
+            default: handled = false;
+        }
+        if (handled) { e.preventDefault(); e.stopPropagation(); this.announce(); }
+    }
+
+    // ── Landing, asistente ───────────────────────────────────────────────────
+
+    private landingIcon(size: number): SVGSVGElement {
+        const NS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(NS, "svg") as SVGSVGElement;
+        svg.setAttribute("width", String(size)); svg.setAttribute("height", String(size)); svg.setAttribute("viewBox", "0 0 44 44");
+        svg.setAttribute("aria-hidden", "true"); svg.setAttribute("class", "lc-l-icon");
+        const hc = this.hc;
+        const rect = document.createElementNS(NS, "rect");
+        rect.setAttribute("width", "44"); rect.setAttribute("height", "44"); rect.setAttribute("rx", "9");
+        rect.setAttribute("fill", hc ? this.hcBg : "#1F4E8C");
+        if (hc) { rect.setAttribute("stroke", this.hcFg); rect.setAttribute("stroke-width", "1.5"); }
+        svg.appendChild(rect);
+        const mk = (pts: string, color: string, dash?: string) => {
+            const p = document.createElementNS(NS, "polyline");
+            p.setAttribute("points", pts); p.setAttribute("fill", "none"); p.setAttribute("stroke", color);
+            p.setAttribute("stroke-width", "3"); p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round");
+            if (dash) { p.setAttribute("stroke-dasharray", dash); p.setAttribute("stroke-width", "2"); }
+            svg.appendChild(p);
+        };
+        mk("7,30 15,24 22,27 30,15 37,12", hc ? this.hcFg : "#BFD7F2", "3,3");
+        mk("7,34 15,28 21,31 29,20 37,18", hc ? this.hcFg : "#3FBF7F");
+        return svg;
+    }
+
+    private renderLanding(W: number, H: number): void {
+        const size = (W >= 600 && H >= 340) ? "l" : (W >= 360 && H >= 220) ? "m" : "s";
+        const hc = this.hc;
+        const fg = hc ? this.hcFg : "";
+        const el = document.createElement("div");
+        el.className = "lc-landing lc-landing-" + size;
+        if (hc) el.style.background = this.hcBg;
+        const mk = (tag: string, cls?: string, text?: string): HTMLElement => {
+            const n = document.createElement(tag);
+            if (cls) n.className = cls;
+            if (text !== undefined) n.textContent = text;
+            if (fg) n.style.color = fg;
+            return n;
+        };
+        const axis = this.t("Role_Axis", "Axis"), val = this.t("Role_Values", "Values"), leg = this.t("Role_Legend", "Legend");
+        const head = mk("div", "lc-l-head");
+        head.appendChild(this.landingIcon(size === "l" ? 44 : size === "m" ? 34 : 26));
+        const titles = mk("div");
+        titles.appendChild(mk("div", "lc-l-title", "Line Chart by TCViz"));
+        if (size !== "s") titles.appendChild(mk("div", "lc-l-tag", size === "l"
+            ? this.t("Landing_Tagline", "Time series the honest way: real dates, visible gaps and the last value at the end of every line.")
+            : this.t("Landing_TaglineShort", "Real dates, visible gaps, last value.")));
+        head.appendChild(titles);
+        el.appendChild(head);
+        const link = (txt: string, url: string, cls: string): HTMLElement => {
+            const a = mk("a", cls) as HTMLAnchorElement;
+            a.href = url; a.tabIndex = 0; a.textContent = txt;
+            if (hc) { a.style.background = "transparent"; a.style.borderColor = fg; }
+            const open = (e: Event) => { e.preventDefault(); e.stopPropagation(); if (this.canInteract) this.host.launchUrl(url); };
+            a.addEventListener("click", open);
+            a.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") open(e); });
+            return a;
+        };
+        const links: [string, string, string][] = [
+            [this.t("Landing_Guide", "Guide"), this.t("Landing_GuideSub", "support page"), URL_GUIDE],
+            [this.t("Landing_Product", "Product page"), "tcviz.com", URL_PRODUCT],
+        ];
+        if (size === "s") {
+            el.appendChild(mk("p", "lc-l-do", this.tf("Landing_Small", "Add {0} and {1}.", axis, val)));
+            const row = mk("div", "lc-l-inline");
+            row.appendChild(link(links[0][0], links[0][2], "lc-l-a"));
+            el.appendChild(row);
+            this.root.appendChild(el);
+            return;
+        }
+        const big = size === "l";
+        const steps = mk("ol", "lc-l-steps");
+        const step = (n: number, well: string, txt: string) => {
+            const li = mk("li");
+            const num = mk("b", "lc-l-n", String(n));
+            if (hc) { num.style.background = fg; num.style.color = this.hcBg; }
+            li.appendChild(num);
+            const sp = mk("span");
+            sp.appendChild(mk("strong", "lc-l-well", well));
+            sp.appendChild(document.createTextNode(" · " + txt));
+            li.appendChild(sp);
+            steps.appendChild(li);
+        };
+        step(1, axis, big ? this.t("Landing_Step1", "a date column (or a date hierarchy, or categories)") : this.t("Landing_Step1Short", "a date column"));
+        step(2, val, big ? this.t("Landing_Step2", "one or more measures; Secondary values go on a right axis") : this.t("Landing_Step2Short", "one or more measures"));
+        step(3, leg, big ? this.t("Landing_Step3", "optional: one line per brand, region or team. Plan and Prior year as grey references") : this.t("Landing_Step3Short", "optional: one line per item"));
+        if (big) {
+            const cols = mk("div", "lc-l-cols");
+            const c1 = mk("div");
+            c1.appendChild(mk("div", "lc-l-lbl", this.t("Landing_Start", "Start in 3 steps")));
+            c1.appendChild(steps);
+            const c2 = mk("div");
+            c2.appendChild(mk("div", "lc-l-lbl", this.t("Landing_Help", "Help")));
+            const list = mk("div", "lc-l-links");
+            for (const [txt, sub, url] of links) {
+                const a = link(txt, url, "lc-l-card");
+                a.appendChild(mk("small", "lc-l-sub", sub));
+                list.appendChild(a);
+            }
+            c2.appendChild(list);
+            cols.appendChild(c1); cols.appendChild(c2);
+            el.appendChild(cols);
+        } else {
+            el.appendChild(steps);
+            const row = mk("div", "lc-l-inline");
+            for (const l of links) row.appendChild(link(l[1] === "tcviz.com" ? "tcviz.com" : l[0], l[2], "lc-l-a"));
+            el.appendChild(row);
+        }
+        this.root.appendChild(el);
+    }
+
+    /**
+     * Asistente, solo editando y con sitio: (1) los campos, (2) el estilo. No toca los pozos. persistProperties solo
+     * desde un clic. ✕ o Terminar lo cierran (style.guide = false); se reabre en Formato → Style template.
+     */
+    private renderGuide(W: number, H: number): void {
+        if (!this.guideEl) {
+            this.guideEl = document.createElement("div");
+            this.guideEl.className = "lc-guide";
+            this.root.appendChild(this.guideEl);
+        }
+        const el = this.guideEl;
+        while (el.firstChild) el.removeChild(el.firstChild);
+        el.style.display = "none";
+        const on = this.settings.style?.guide !== false;
+        if (!this.editing || this.formatMode || !on || !this.canInteract || !this.model || W < 420 || H < 260) return;
+        const m = this.model;
+        const hc = this.hc;
+        const azul = hc ? this.hcSel : "#2B6CB0";
+        const fg = hc ? this.hcFg : "#252423";
+        const muted = hc ? fg : "#605E5C";
+        el.style.display = "block";
+        el.style.background = hc ? this.hcBg : "#FFFFFF";
+        el.style.borderColor = azul;
+        el.style.color = fg;
+        el.setAttribute("role", "dialog");
+        el.setAttribute("aria-label", this.t("Guide_Title", "Setup guide"));
+        el.onclick = e => e.stopPropagation();
+        el.onkeydown = e => e.stopPropagation();
+        const mk = (tag: string, cls: string, text?: string): HTMLElement => {
+            const n = document.createElement(tag); n.className = cls; if (text !== undefined) n.textContent = text; return n;
+        };
+        const boton = (texto: string, principal: boolean, accion: () => void): HTMLButtonElement => {
+            const b = mk("button", "lc-g-btn", texto) as HTMLButtonElement;
+            b.type = "button";
+            b.style.borderColor = azul;
+            b.style.background = principal ? azul : "transparent";
+            b.style.color = principal ? (hc ? this.hcBg : "#FFFFFF") : azul;
+            b.addEventListener("click", accion);
+            return b;
+        };
+        const terminar = () => { this.guideStep = 1; this.persistir("style", { guide: false }); };
+        const cab = mk("div", "lc-g-head");
+        const paso = mk("div", "", this.tf("Guide_Step", "Setup · step {0} of 2", String(this.guideStep)));
+        paso.style.color = azul;
+        const cerrar = mk("button", "lc-g-close", "✕") as HTMLButtonElement;
+        cerrar.type = "button";
+        cerrar.title = this.t("Guide_Close", "Close the guide");
+        cerrar.setAttribute("aria-label", cerrar.title);
+        cerrar.style.color = muted;
+        cerrar.addEventListener("click", terminar);
+        cab.appendChild(paso); cab.appendChild(cerrar);
+        el.appendChild(cab);
+        const titulo = mk("div", "lc-g-title");
+        el.appendChild(titulo);
+        const pie = mk("div", "lc-g-foot");
+        const fila = (hecho: boolean, nombre: string, porque: string) => {
+            const f = mk("div", "lc-g-item");
+            const marca = mk("span", "", hecho ? "✓" : "○");
+            marca.setAttribute("aria-label", hecho ? this.t("Guide_Done", "added") : this.t("Guide_Todo", "not added"));
+            marca.style.color = hecho ? (hc ? fg : "#107C10") : muted;
+            const txt = mk("span", "");
+            txt.appendChild(mk("b", "", nombre));
+            txt.appendChild(document.createTextNode(" — " + porque));
+            txt.style.color = hecho ? muted : fg;
+            f.appendChild(marca); f.appendChild(txt);
+            el.appendChild(f);
+        };
+        const has = (role: string) => !!this.dataView?.metadata?.columns?.some(c => c.roles?.[role]);
+        if (this.guideStep === 1) {
+            titulo.textContent = this.t("Guide_Fields", "Your data");
+            fila(true, this.t("Role_Axis", "Axis"), m.isTime ? this.t("Guide_AxisTime", "a real date axis: a missing period breaks the line")
+                : this.t("Guide_AxisCat", "categories: points evenly spaced"));
+            fila(has("values") || has("secondaryValues"), this.t("Role_Values", "Values"), this.t("Guide_ValuesWhy", "one line per measure"));
+            fila(has("legend"), this.t("Role_Legend", "Legend"), this.t("Guide_LegendWhy", "one line per brand, region or team"));
+            fila(has("secondaryValues"), this.t("Role_SecondaryValues", "Secondary values"), this.t("Guide_SecondaryWhy", "a measure in other units, on a right axis"));
+            fila(has("plan") || has("previousYear") || has("forecast"), this.t("Guide_Refs", "Plan · Prior year · Forecast"),
+                this.t("Guide_RefsWhy", "your own measures, drawn as grey dashed lines"));
+            const nota = mk("div", "lc-g-note", this.t("Guide_Wells", "Drag the fields into the field wells; this list updates by itself."));
+            nota.style.color = muted;
+            el.appendChild(nota);
+            pie.appendChild(boton(this.t("Guide_Next", "Next"), true, () => { this.guideStep = 2; this.renderGuide(W, H); }));
+        } else {
+            titulo.textContent = this.t("Guide_Style", "Pick a style");
+            const actual = String((this.dataView?.metadata?.objects as any)?.style?.template ?? "report");
+            const rejilla = mk("div", "lc-g-grid");
+            for (const [nombre, clave, def] of [["report", "Enum_template_report", "Report theme"], ["classic", "Enum_template_classic", "Classic"]]) {
+                const chip = mk("button", "lc-g-tpl") as HTMLButtonElement;
+                chip.type = "button";
+                chip.setAttribute("aria-pressed", String(nombre === actual));
+                chip.style.borderColor = nombre === actual ? azul : "#C8C6C4";
+                chip.style.borderWidth = nombre === actual ? "2px" : "1px";
+                chip.appendChild(this.miniLines(nombre, hc));
+                chip.appendChild(mk("div", "", this.t(clave, def)));
+                chip.addEventListener("click", () => this.persistir("style", { template: nombre }));
+                rejilla.appendChild(chip);
+            }
+            el.appendChild(rejilla);
+            pie.appendChild(boton(this.t("Guide_Back", "Back"), false, () => { this.guideStep = 1; this.renderGuide(W, H); }));
+            pie.appendChild(boton(this.t("Guide_Finish", "Finish"), true, terminar));
+        }
+        el.appendChild(pie);
+    }
+
+    private miniLines(nombre: string, hc: boolean): SVGSVGElement {
+        const NS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(NS, "svg") as SVGSVGElement;
+        svg.setAttribute("width", "64"); svg.setAttribute("height", "36"); svg.setAttribute("aria-hidden", "true");
+        const pal: any = this.host.colorPalette;
+        const cols = nombre === "classic" ? CLASSIC.slice(0, 3)
+            : [0, 1, 2].map(i => pal?.getColor?.("tcviz-mini-" + i)?.value ?? CLASSIC[i]);
+        ["4,28 18,22 30,25 44,12 60,9", "4,32 18,30 30,20 44,22 60,18", "4,20 18,14 30,16 44,26 60,28"].forEach((pts, i) => {
+            const p = document.createElementNS(NS, "polyline");
+            p.setAttribute("points", pts); p.setAttribute("fill", "none"); p.setAttribute("stroke", hc ? "#FFFFFF" : cols[i]);
+            p.setAttribute("stroke-width", "2");
+            svg.appendChild(p);
+        });
+        return svg;
+    }
+
+    private aplicarPlantilla(nombre: string): void {
+        const t = TEMPLATES[nombre] ?? {};
+        const remove: any[] = Object.keys(t).map(obj => ({
+            objectName: obj, selector: null,
+            properties: Object.keys(t[obj]).reduce((acc: any, p) => { acc[p] = null; return acc; }, {}),
+        }));
+        if (remove.length) this.host.persistProperties({ remove });
+    }
+
+    private persistir(objectName: string, properties: any): void {
+        this.host.persistProperties({ merge: [{ objectName, selector: null as any, properties }] });
+    }
+
+    private injectStyles(): void {
+        const ID = "line-chart-tcviz-styles";
+        const doc = this.root.ownerDocument ?? document;
+        if (doc.getElementById(ID)) return;
+        const st = doc.createElement("style");
+        st.id = ID;
+        st.textContent = [
+            ".lc-root .lc-svg:focus{outline:none}",
+            ".lc-root .lc-svg:focus-visible{outline:2px solid #2B6CB0;outline-offset:-2px}",
+            "@media (forced-colors: active){.lc-root .lc-svg:focus-visible{outline-color:Highlight}}",
+        ].join("");
+        (doc.head ?? this.root).appendChild(st);
+    }
+
+    // ── Panel de formato (desde la tabla de tools/formato.py) ───────────────
+
+    private slice(obj: string, p: PropSpec): powerbi.visuals.FormattingSlice {
+        const value = this.settings?.[obj]?.[p.name] ?? p.def;
+        const descriptor = { objectName: obj, propertyName: p.name };
+        const base = { uid: obj + "-" + p.name, displayName: this.t(p.key, p.label) };
+        if (p.type === "bool") return { ...base, control: { type: "ToggleSwitch" as any, properties: { descriptor, value: !!value } } } as any;
+        if (p.type === "num") return { ...base, control: { type: "NumUpDown" as any, properties: { descriptor, value: Number(value),
+            options: { minValue: p.min !== undefined ? { type: 0, value: p.min } : undefined, maxValue: p.max !== undefined ? { type: 1, value: p.max } : undefined } } } } as any;
+        if (p.type === "fill") return { ...base, control: { type: "ColorPicker" as any, properties: { descriptor, value: { value: String(value) } } } } as any;
+        if (p.type === "enum") {
+            let items = (p.items ?? []).map(([v, k, l]) => ({ value: v, displayName: this.t(k, l) }));
+            // Bloque 1: los seis estilos Pro están declarados en capabilities pero no se ofrecen hasta el bloque 2.
+            if (obj === "style" && p.name === "template") items = items.filter(it => PRO_STYLES.indexOf(String(it.value)) < 0 || it.value === value);
+            const cur = items.find(it => it.value === value) ?? items[0];
+            return { ...base, control: { type: "Dropdown" as any, properties: { descriptor, value: cur, items } } } as any;
+        }
+        return { ...base, control: { type: "TextInput" as any, properties: { descriptor, value: String(value), placeholder: "" } } } as any;
+    }
+
+    public getFormattingModel(): powerbi.visuals.FormattingModel {
+        const hasY2 = !!this.model?.series.some(s => s.role === "secondaryValues") && !!this.model?.series.some(s => s.role === "values");
+        const cards: powerbi.visuals.FormattingCard[] = [];
+        for (const c of PANE) {
+            const revert: powerbi.visuals.FormattingDescriptor[] = [];
+            const groups: powerbi.visuals.FormattingGroup[] = [];
+            let cardToggle: any;
+            for (const g of c.groups) {
+                if (g.obj === "y2Axis" && !hasY2) continue;
+                const spec = OBJECTS[g.obj];
+                const slices = spec.props.filter(p => p.name !== g.toggle).map(p => this.slice(g.obj, p));
+                spec.props.forEach(p => revert.push({ objectName: g.obj, propertyName: p.name }));
+                const grp: any = { uid: c.uid + "-" + g.obj + "-group", displayName: g.key ? this.t(g.key, g.label) : undefined, slices };
+                if (g.toggle) {
+                    const tp = spec.props.find(p => p.name === g.toggle);
+                    const ts: any = this.slice(g.obj, tp);
+                    ts.suppressDisplayName = true;
+                    if (c.groups.length === 1) cardToggle = ts; else grp.topLevelToggle = ts;
+                }
+                groups.push(grp);
+            }
+            const card: any = { uid: c.uid + "-card", displayName: this.t(c.key, c.label), groups, revertToDefaultDescriptors: revert };
+            if (cardToggle) card.topLevelToggle = cardToggle;
+            cards.push(card);
+        }
+        return { cards };
+    }
+
+    // ── Formato desde el lienzo (on-object) ──────────────────────────────────
+
+    private cardLabel(obj: string): string {
+        const spec = OBJECTS[obj];
+        return spec ? this.t(spec.key, spec.label) : obj;
+    }
+
+    private propLabel(obj: string, prop: string): string {
+        const p = OBJECTS[obj]?.props.find(x => x.name === prop);
+        return p ? this.t(p.key, p.label) : prop;
+    }
+
+    private markSubSelectables(): void {
+        const marcar = (sel: string, objeto: string, tipo: number) => {
+            this.root.querySelectorAll(sel).forEach(el => {
+                if (!this.formatMode) { el.classList.remove(HtmlSubSelectableClass); return; }
+                el.classList.add(HtmlSubSelectableClass);
+                el.setAttribute(SubSelectableObjectNameAttribute, objeto);
+                el.setAttribute(SubSelectableDisplayNameAttribute, this.cardLabel(objeto));
+                el.setAttribute(SubSelectableTypeAttribute, String(tipo));
+            });
+        };
+        marcar(".lc-series", "lines", 3);
+        marcar(".lc-ref", "references", 3);
+        marcar(".lc-endlabel", "endLabels", 1);
+        marcar(".lc-x", "xAxis", 1);
+        marcar(".lc-y", "yAxis", 1);
+        marcar(".lc-y2", "y2Axis", 1);
+        marcar(".lc-legend", "legend", 1);
+    }
+
+    private getSubSelectionStyles(subs: powerbi.visuals.CustomVisualSubSelection[]): powerbi.visuals.SubSelectionStyles | undefined {
+        const name = subs[0]?.customVisualObjects[0]?.objectName;
+        const ref = (o: string, p: string) => ({ reference: { objectName: o, propertyName: p }, label: this.propLabel(o, p) });
+        switch (name) {
+            case "lines": return { type: 3, width: ref("lines", "width") } as any;
+            case "references": return { type: 3, stroke: ref("references", "color"), width: ref("references", "width") } as any;
+            case "endLabels": return { type: 1, fontSize: ref("endLabels", "fontSize"), fontColor: ref("endLabels", "color") } as any;
+            case "xAxis": return { type: 1, fontSize: ref("xAxis", "fontSize"), fontColor: ref("xAxis", "color") } as any;
+            case "yAxis": return { type: 1, fontSize: ref("yAxis", "fontSize"), fontColor: ref("yAxis", "color") } as any;
+            case "y2Axis": return { type: 1, fontSize: ref("y2Axis", "fontSize") } as any;
+            case "legend": return { type: 1, fontSize: ref("legend", "fontSize"), fontColor: ref("legend", "color") } as any;
+        }
+        return undefined;
+    }
+
+    private getSubSelectionShortcuts(subs: powerbi.visuals.CustomVisualSubSelection[]): powerbi.visuals.VisualSubSelectionShortcuts | undefined {
+        const name = subs[0]?.customVisualObjects[0]?.objectName;
+        if (!name || !OBJECTS[name]) return undefined;
+        const id = (o: string, p: string) => ({ objectName: o, propertyName: p });
+        const toggle = (o: string, p: string) => ({ type: 2, ...id(o, p), relatedToggledFormattingIds: [id(o, p)],
+            disabledLabel: this.propLabel(o, p), enabledLabel: this.propLabel(o, p) });
+        const reset = (o: string) => ({ type: 0, relatedResetFormattingIds: OBJECTS[o].props.map(p => id(o, p.name)) });
+        const nav = (o: string, card: string) => ({ type: 1, destinationInfo: { cardUid: "Visual-" + card + "-card" }, label: this.cardLabel(o) });
+        const div = { type: 7 };
+        switch (name) {
+            case "lines": return [{ type: 3, ...id("lines", "missing"), label: this.propLabel("lines", "missing") }, div, reset("lines"), nav("lines", "lines")] as any;
+            case "references": return [toggle("references", "show"), toggle("references", "legend"), div, reset("references"), nav("references", "references")] as any;
+            case "endLabels": return [toggle("endLabels", "show"), toggle("endLabels", "seriesColor"), div, reset("endLabels"), nav("endLabels", "endLabels")] as any;
+            case "xAxis": case "yAxis": case "y2Axis": return [toggle(name, "show"), toggle(name, "title"), div, reset(name), nav(name, "axes")] as any;
+            case "legend": return [{ type: 3, ...id("legend", "position"), label: this.propLabel("legend", "position") }, toggle("legend", "show"), div, reset("legend"), nav("legend", "legend")] as any;
+        }
+        return undefined;
+    }
+
+    public destroy(): void {
+        this.hideTip();
+        this.root.remove();
+    }
+}
+
+function luminance(hex: string): number {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+    if (!m) return 0.5;
+    const n = parseInt(m[1], 16);
+    const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(c => { const x = c / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); });
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+
+function contrast(a: string, b: string): number {
+    const la = luminance(a), lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }

@@ -1,3 +1,61 @@
-.line-chart-tcviz-diag {
+// Line Chart by TCViz — estilos que entran en el paquete (importado en src/visual.ts; tools 7.x emite content.css).
+
+.lc-root {
+    position: absolute; inset: 0; overflow: hidden;
     font-family: "Segoe UI", wf_segoe-ui_normal, helvetica, arial, sans-serif;
+    .lc-svg { display: block; overflow: hidden; }
+    .lc-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+
+// Asistente de configuración: panel compacto en la esquina, solo editando
+.lc-guide {
+    display: none; position: absolute; right: 8px; bottom: 8px; width: 320px;
+    max-width: calc(100% - 16px); max-height: calc(100% - 16px); overflow: auto;
+    border: 1px solid #2B6CB0; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    padding: 8px 10px; box-sizing: border-box; z-index: 20; font: 11.5px/1.35 "Segoe UI", sans-serif; cursor: default;
+    .lc-g-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-weight: 700; div { flex: 1; } }
+    .lc-g-close { border: none; background: transparent; cursor: pointer; font-size: 13px; }
+    .lc-g-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+    .lc-g-item { display: flex; gap: 6px; align-items: baseline; margin: 2px 0; span:first-child { font-weight: 700; width: 12px; flex-shrink: 0; } }
+    .lc-g-note { font-size: 11px; margin-top: 4px; }
+    .lc-g-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+    .lc-g-btn { font: 600 12px "Segoe UI", sans-serif; border-radius: 4px; padding: 3px 12px; cursor: pointer; border: 1px solid; flex-shrink: 0; }
+    .lc-g-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+    .lc-g-tpl { border-style: solid; border-radius: 6px; padding: 4px; cursor: pointer; background: #FFFFFF; font: 11px "Segoe UI", sans-serif;
+        color: #252423; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+}
+
+// Pantalla de inicio: la de la serie TCViz, en tres tamaños
+.lc-landing {
+    position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 18px;
+    padding: 24px 32px; box-sizing: border-box; overflow: hidden; color: #605E5C; font-family: "Segoe UI", sans-serif;
+    .lc-l-head { display: flex; gap: 12px; align-items: center; }
+    .lc-l-icon { flex-shrink: 0; }
+    .lc-l-title { font-size: 20px; font-weight: 600; color: #252423; }
+    .lc-l-tag { font-size: 14px; margin-top: 2px; }
+    .lc-l-cols { display: grid; grid-template-columns: 1.15fr 1fr; gap: 28px; }
+    .lc-l-lbl { font-size: 10.5px; font-weight: 600; letter-spacing: 1.3px; text-transform: uppercase; color: #8A8886; margin-bottom: 7px; }
+    .lc-l-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; font-size: 13.5px; }
+    .lc-l-steps li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; }
+    .lc-l-n { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: #2B6CB0; color: #FFFFFF; font-size: 10.5px; }
+    .lc-l-well { color: #252423; }
+    .lc-l-links { display: grid; gap: 7px; }
+    .lc-l-card { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border: 1px solid #E1DFDD; border-radius: 6px; background: #F7F6F3;
+        color: #252423; text-decoration: none; font-size: 13.5px; cursor: pointer; }
+    .lc-l-card:hover, .lc-l-card:focus-visible { border-color: #2B6CB0; outline: none; }
+    .lc-l-sub { margin-left: auto; color: #8A8886; font-size: 11px; }
+    .lc-l-inline { display: flex; gap: 14px; flex-wrap: wrap; }
+    .lc-l-a { color: #2B6CB0; font-weight: 600; text-decoration: none; cursor: pointer; }
+    .lc-l-a:hover, .lc-l-a:focus-visible { text-decoration: underline; outline: none; }
+    .lc-l-do { margin: 0; font-size: 12px; line-height: 1.45; }
+}
+.lc-landing-m {
+    gap: 11px; padding: 16px 20px;
+    .lc-l-title { font-size: 16px; }
+    .lc-l-tag, .lc-l-steps, .lc-l-inline { font-size: 12.5px; }
+}
+.lc-landing-s {
+    gap: 8px; padding: 12px 14px;
+    .lc-l-title { font-size: 14px; }
+    .lc-l-inline { font-size: 12px; }
 }

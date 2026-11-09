@@ -71,7 +71,546 @@
       "kind": "Measure"
     }
   ],
-  "objects": {},
+  "objects": {
+    "general": {
+      "properties": {
+        "formatString": {
+          "type": {
+            "formatting": {
+              "formatString": true
+            }
+          }
+        }
+      }
+    },
+    "style": {
+      "displayName": "Style template",
+      "displayNameKey": "Obj_style",
+      "properties": {
+        "template": {
+          "displayName": "Template",
+          "displayNameKey": "Prop_style_template",
+          "type": {
+            "enumeration": [
+              {
+                "value": "report",
+                "displayName": "Report theme",
+                "displayNameKey": "Enum_template_report"
+              },
+              {
+                "value": "classic",
+                "displayName": "Classic",
+                "displayNameKey": "Enum_template_classic"
+              },
+              {
+                "value": "boardroom",
+                "displayName": "Boardroom (Pro)",
+                "displayNameKey": "Enum_template_boardroom"
+              },
+              {
+                "value": "ledger",
+                "displayName": "Ledger (Pro)",
+                "displayNameKey": "Enum_template_ledger"
+              },
+              {
+                "value": "editorial",
+                "displayName": "Editorial (Pro)",
+                "displayNameKey": "Enum_template_editorial"
+              },
+              {
+                "value": "signal",
+                "displayName": "Signal (Pro)",
+                "displayNameKey": "Enum_template_signal"
+              },
+              {
+                "value": "aurora",
+                "displayName": "Aurora (Pro)",
+                "displayNameKey": "Enum_template_aurora"
+              },
+              {
+                "value": "terrace",
+                "displayName": "Terrace (Pro)",
+                "displayNameKey": "Enum_template_terrace"
+              }
+            ]
+          }
+        },
+        "guide": {
+          "displayName": "Setup guide",
+          "displayNameKey": "Prop_style_guide",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    },
+    "lines": {
+      "displayName": "Lines",
+      "displayNameKey": "Obj_lines",
+      "properties": {
+        "width": {
+          "displayName": "Line width",
+          "displayNameKey": "Prop_lines_width",
+          "type": {
+            "numeric": true
+          }
+        },
+        "markers": {
+          "displayName": "Markers",
+          "displayNameKey": "Prop_lines_markers",
+          "type": {
+            "enumeration": [
+              {
+                "value": "auto",
+                "displayName": "Automatic",
+                "displayNameKey": "Enum_markers_auto"
+              },
+              {
+                "value": "on",
+                "displayName": "On",
+                "displayNameKey": "Enum_markers_on"
+              },
+              {
+                "value": "off",
+                "displayName": "Off",
+                "displayNameKey": "Enum_markers_off"
+              }
+            ]
+          }
+        },
+        "markerSize": {
+          "displayName": "Marker size",
+          "displayNameKey": "Prop_lines_markerSize",
+          "type": {
+            "numeric": true
+          }
+        },
+        "missing": {
+          "displayName": "Missing values",
+          "displayNameKey": "Prop_lines_missing",
+          "type": {
+            "enumeration": [
+              {
+                "value": "break",
+                "displayName": "Break the line",
+                "displayNameKey": "Enum_missing_break"
+              },
+              {
+                "value": "connect",
+                "displayName": "Connect the points",
+                "displayNameKey": "Enum_missing_connect"
+              },
+              {
+                "value": "zero",
+                "displayName": "Treat as zero",
+                "displayNameKey": "Enum_missing_zero"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "endLabels": {
+      "displayName": "End labels",
+      "displayNameKey": "Obj_endLabels",
+      "properties": {
+        "show": {
+          "displayName": "Show end labels",
+          "displayNameKey": "Prop_endLabels_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "content": {
+          "displayName": "Content",
+          "displayNameKey": "Prop_endLabels_content",
+          "type": {
+            "enumeration": [
+              {
+                "value": "nameValue",
+                "displayName": "Name and value",
+                "displayNameKey": "Enum_content_nameValue"
+              },
+              {
+                "value": "value",
+                "displayName": "Value",
+                "displayNameKey": "Enum_content_value"
+              },
+              {
+                "value": "name",
+                "displayName": "Name",
+                "displayNameKey": "Enum_content_name"
+              }
+            ]
+          }
+        },
+        "maxLabels": {
+          "displayName": "Maximum labels",
+          "displayNameKey": "Prop_endLabels_maxLabels",
+          "type": {
+            "numeric": true
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Prop_endLabels_fontSize",
+          "type": {
+            "numeric": true
+          }
+        },
+        "seriesColor": {
+          "displayName": "Use the series color",
+          "displayNameKey": "Prop_endLabels_seriesColor",
+          "type": {
+            "bool": true
+          }
+        },
+        "color": {
+          "displayName": "Text color",
+          "displayNameKey": "Prop_endLabels_color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "references": {
+      "displayName": "Plan, prior year and forecast",
+      "displayNameKey": "Obj_references",
+      "properties": {
+        "show": {
+          "displayName": "Show reference lines",
+          "displayNameKey": "Prop_references_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "colorMode": {
+          "displayName": "Line color",
+          "displayNameKey": "Prop_references_colorMode",
+          "type": {
+            "enumeration": [
+              {
+                "value": "gray",
+                "displayName": "Gray",
+                "displayNameKey": "Enum_colorMode_gray"
+              },
+              {
+                "value": "series",
+                "displayName": "Color of its series",
+                "displayNameKey": "Enum_colorMode_series"
+              }
+            ]
+          }
+        },
+        "color": {
+          "displayName": "Gray",
+          "displayNameKey": "Prop_references_color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "width": {
+          "displayName": "Line width",
+          "displayNameKey": "Prop_references_width",
+          "type": {
+            "numeric": true
+          }
+        },
+        "legend": {
+          "displayName": "Show in legend",
+          "displayNameKey": "Prop_references_legend",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    },
+    "xAxis": {
+      "displayName": "X axis",
+      "displayNameKey": "Obj_xAxis",
+      "properties": {
+        "show": {
+          "displayName": "Show X axis",
+          "displayNameKey": "Prop_xAxis_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Prop_xAxis_fontSize",
+          "type": {
+            "numeric": true
+          }
+        },
+        "color": {
+          "displayName": "Text color",
+          "displayNameKey": "Prop_xAxis_color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "title": {
+          "displayName": "Title",
+          "displayNameKey": "Prop_xAxis_title",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    },
+    "yAxis": {
+      "displayName": "Y axis",
+      "displayNameKey": "Obj_yAxis",
+      "properties": {
+        "show": {
+          "displayName": "Show Y axis",
+          "displayNameKey": "Prop_yAxis_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Prop_yAxis_fontSize",
+          "type": {
+            "numeric": true
+          }
+        },
+        "color": {
+          "displayName": "Text color",
+          "displayNameKey": "Prop_yAxis_color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "title": {
+          "displayName": "Title",
+          "displayNameKey": "Prop_yAxis_title",
+          "type": {
+            "bool": true
+          }
+        },
+        "zero": {
+          "displayName": "Start at zero",
+          "displayNameKey": "Prop_yAxis_zero",
+          "type": {
+            "bool": true
+          }
+        },
+        "grid": {
+          "displayName": "Gridlines",
+          "displayNameKey": "Prop_yAxis_grid",
+          "type": {
+            "bool": true
+          }
+        },
+        "gridColor": {
+          "displayName": "Gridline color",
+          "displayNameKey": "Prop_yAxis_gridColor",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "y2Axis": {
+      "displayName": "Secondary Y axis",
+      "displayNameKey": "Obj_y2Axis",
+      "properties": {
+        "show": {
+          "displayName": "Show secondary Y axis",
+          "displayNameKey": "Prop_y2Axis_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Prop_y2Axis_fontSize",
+          "type": {
+            "numeric": true
+          }
+        },
+        "title": {
+          "displayName": "Title",
+          "displayNameKey": "Prop_y2Axis_title",
+          "type": {
+            "bool": true
+          }
+        },
+        "zero": {
+          "displayName": "Start at zero",
+          "displayNameKey": "Prop_y2Axis_zero",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    },
+    "legend": {
+      "displayName": "Legend",
+      "displayNameKey": "Obj_legend",
+      "properties": {
+        "show": {
+          "displayName": "Show legend",
+          "displayNameKey": "Prop_legend_show",
+          "type": {
+            "bool": true
+          }
+        },
+        "position": {
+          "displayName": "Position",
+          "displayNameKey": "Prop_legend_position",
+          "type": {
+            "enumeration": [
+              {
+                "value": "top",
+                "displayName": "Top",
+                "displayNameKey": "Enum_position_top"
+              },
+              {
+                "value": "bottom",
+                "displayName": "Bottom",
+                "displayNameKey": "Enum_position_bottom"
+              }
+            ]
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Prop_legend_fontSize",
+          "type": {
+            "numeric": true
+          }
+        },
+        "color": {
+          "displayName": "Text color",
+          "displayNameKey": "Prop_legend_color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "smallMultiples": {
+      "displayName": "Small multiples (Pro)",
+      "displayNameKey": "Obj_smallMultiples",
+      "properties": {
+        "columns": {
+          "displayName": "Columns (0 = automatic)",
+          "displayNameKey": "Prop_smallMultiples_columns",
+          "type": {
+            "numeric": true
+          }
+        },
+        "gap": {
+          "displayName": "Space between panels",
+          "displayNameKey": "Prop_smallMultiples_gap",
+          "type": {
+            "numeric": true
+          }
+        },
+        "titleFontSize": {
+          "displayName": "Title size",
+          "displayNameKey": "Prop_smallMultiples_titleFontSize",
+          "type": {
+            "numeric": true
+          }
+        },
+        "titleColor": {
+          "displayName": "Title color",
+          "displayNameKey": "Prop_smallMultiples_titleColor",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "titleBold": {
+          "displayName": "Bold title",
+          "displayNameKey": "Prop_smallMultiples_titleBold",
+          "type": {
+            "bool": true
+          }
+        },
+        "titleAlign": {
+          "displayName": "Title alignment",
+          "displayNameKey": "Prop_smallMultiples_titleAlign",
+          "type": {
+            "enumeration": [
+              {
+                "value": "left",
+                "displayName": "Left",
+                "displayNameKey": "Enum_titleAlign_left"
+              },
+              {
+                "value": "center",
+                "displayName": "Center",
+                "displayNameKey": "Enum_titleAlign_center"
+              }
+            ]
+          }
+        },
+        "background": {
+          "displayName": "Panel background",
+          "displayNameKey": "Prop_smallMultiples_background",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "border": {
+          "displayName": "Panel border",
+          "displayNameKey": "Prop_smallMultiples_border",
+          "type": {
+            "bool": true
+          }
+        },
+        "borderColor": {
+          "displayName": "Panel border color",
+          "displayNameKey": "Prop_smallMultiples_borderColor",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "dataViewMappings": [
     {
       "conditions": [
@@ -185,5 +724,7 @@
   },
   "sorting": {
     "default": {}
-  }
+  },
+  "supportsOnObjectFormatting": true,
+  "enablePointerEventsFormatMode": true
 }
