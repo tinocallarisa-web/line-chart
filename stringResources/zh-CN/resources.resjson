@@ -182,6 +182,7 @@
   "Obj_interactions": "交互",
   "Prop_interactions_zoom": "缩放",
   "Prop_interactions_yAutoFit": "缩放时自动调整 Y",
+  "Prop_interactions_zoomSlider": "缩放滑块",
   "Obj_axes": "轴",
   "Grp_xAxis": "X 轴",
   "Grp_yAxis": "Y 轴",

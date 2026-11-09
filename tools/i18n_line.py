@@ -294,4 +294,5 @@ P = {
 "Show values as (Pro)": ["Mostrar valores como (Pro)", "Afficher les valeurs en tant que (Pro)", "Werte anzeigen als (Pro)", "Mostra valori come (Pro)", "Waarden weergeven als (Pro)", "Pokaż wartości jako (Pro)", "値の表示方法 (Pro)", "值显示方式 (Pro)", "값 표시 방법(Pro)", "Mostrar valores como (Pro)"],
 "Split actual and plan": ["Separar real e plano", "Séparer réel et plan", "Ist und Plan trennen", "Separa effettivo e piano", "Werkelijk en plan scheiden", "Oddziel rzeczywiste i plan", "実績と計画を分ける", "区分实际与计划", "실적과 계획 구분", "Separar real y plan"],
 "show values as": ["mostrar valores como", "afficher les valeurs en tant que", "Werte anzeigen als", "mostra valori come", "waarden weergeven als", "pokaż wartości jako", "値の表示方法", "值显示方式", "값 표시 방법", "mostrar valores como"],
+"Zoom slider": ["Controle deslizante de zoom", "Curseur de zoom", "Zoomschieberegler", "Dispositivo di scorrimento zoom", "Zoomschuifregelaar", "Suwak powiększenia", "ズーム スライダー", "缩放滑块", "확대/축소 슬라이더", "Control deslizante de zoom"],
 }

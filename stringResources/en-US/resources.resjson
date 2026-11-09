@@ -182,6 +182,7 @@
   "Obj_interactions": "Interactions",
   "Prop_interactions_zoom": "Zoom",
   "Prop_interactions_yAutoFit": "Y auto-fit when zoomed",
+  "Prop_interactions_zoomSlider": "Zoom slider",
   "Obj_axes": "Axes",
   "Grp_xAxis": "X axis",
   "Grp_yAxis": "Y axis",

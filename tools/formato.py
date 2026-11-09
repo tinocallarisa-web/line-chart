@@ -168,6 +168,7 @@ OBJECTS = [
     ("interactions", "Interactions", [
         ("zoom", "Zoom", "bool", True, {}),
         ("yAutoFit", "Y auto-fit when zoomed", "bool", True, {}),
+        ("zoomSlider", "Zoom slider", "bool", False, {}),
     ]),
 ]
 

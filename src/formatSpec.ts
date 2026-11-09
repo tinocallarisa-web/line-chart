@@ -1171,6 +1171,13 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "def": true,
                 "key": "Prop_interactions_yAutoFit",
                 "label": "Y auto-fit when zoomed"
+            },
+            {
+                "name": "zoomSlider",
+                "type": "bool",
+                "def": false,
+                "key": "Prop_interactions_zoomSlider",
+                "label": "Zoom slider"
             }
         ]
     }

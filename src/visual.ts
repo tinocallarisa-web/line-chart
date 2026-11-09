@@ -76,6 +76,8 @@ const HC_DASH = ["", "10,4", "16,4,4,4", "5,5", "20,5", "12,3,3,3,3,3", "8,8", "
 const HC_SYMBOLS = [d3.symbolCircle, d3.symbolSquare, d3.symbolTriangle, d3.symbolDiamond, d3.symbolCross, d3.symbolStar, d3.symbolWye];
 const REF_KINDS_ORDER: RefKind[] = ["plan", "previousYear", "forecast"];
 const REF_DASH: Record<RefKind, string> = { plan: "6,3", previousYear: "2,3", forecast: "8,3,2,3" };
+/** Tras el último real (Split actual and plan): el mismo color, trazo más largo. */
+const REF_DASH_NEXT: Record<RefKind, string> = { plan: "12,4", previousYear: "5,4", forecast: "14,4,3,4" };
 const REF_DEFAULT_NAME: Record<RefKind, [string, string]> = {
     plan: ["Role_Plan", "Plan"], previousYear: ["Role_PreviousYear", "Prior year"], forecast: ["Role_Forecast", "Forecast"],
 };
@@ -1428,7 +1430,7 @@ export class Visual implements IVisual {
         // Eje de fechas por debajo de un año: dos filas (mes o día arriba, año abajo solo cuando empieza).
         L.xExtra = m.isTime && m.cadence < 300 * 86400000 ? xfs + 2 : 0;
         // Franja de zoom: un panel, con sitio y con zoom permitido (no en small multiples: Ctrl+rueda y teclado).
-        L.brushH = !inPanel && this.zoomable && m.keys.length >= 3 && H >= 240 && W >= 320 ? 16 : 0;
+        L.brushH = !inPanel && this.zoomable && !!s.interactions?.zoomSlider && m.keys.length >= 3 && H >= 240 && W >= 320 ? 16 : 0;
         const compute = () => {
             L.top = 6 + (L.legend && s.legend.position === "top" ? L.legendH : 0);
             L.bottom = 4 + L.noticeH + (L.legend && s.legend.position === "bottom" ? L.legendH : 0) +
@@ -1613,7 +1615,7 @@ export class Visual implements IVisual {
 
     /** ¿Sigue esta referencia (plan o previsión) después del último real de su serie? */
     private continuesAfterActual(ser: Series, r: RefLine): boolean {
-        return !!this.settings.references.actualSplit && (r.kind === "plan" || r.kind === "forecast") && ser.lastIndex >= 0 &&
+        return !!this.settings.references.actualSplit && ser.lastIndex >= 0 &&
             r.values.some((v, k) => v !== null && k > ser.lastIndex);
     }
 
@@ -1637,10 +1639,12 @@ export class Visual implements IVisual {
                     if (a.length) after.push(a);
                 }
                 segs = before;
-                const fc = this.hc ? this.hcFg : ser.color;
+                // El MISMO color que la referencia antes del corte (no el de la serie: parecería una previsión de las
+                // ventas); solo cambia el trazo, un discontinuo más largo.
+                const fc = color;
                 for (const seg of after) {
                     if (seg.length > 1) gg.append("path").attr("class", "lc-ref-next").attr("d", line(seg)).attr("fill", "none").attr("stroke", fc)
-                        .attr("stroke-width", Math.max(1.5, width)).attr("stroke-dasharray", REF_DASH[r.kind]).attr("stroke-linecap", "round");
+                        .attr("stroke-width", this.hc ? 1 : width).attr("stroke-dasharray", REF_DASH_NEXT[r.kind]).attr("stroke-linecap", "round");
                     else gg.append("circle").attr("cx", this.x(seg[0].pos)).attr("cy", y(seg[0].v)).attr("r", 2).attr("fill", fc);
                 }
                 // Rótulo en el último punto del plan, con su valor.

@@ -182,6 +182,7 @@
   "Obj_interactions": "상호 작용",
   "Prop_interactions_zoom": "확대/축소",
   "Prop_interactions_yAutoFit": "확대 시 Y 자동 맞춤",
+  "Prop_interactions_zoomSlider": "확대/축소 슬라이더",
   "Obj_axes": "축",
   "Grp_xAxis": "X축",
   "Grp_yAxis": "Y축",

@@ -1252,6 +1252,13 @@
           "type": {
             "bool": true
           }
+        },
+        "zoomSlider": {
+          "displayName": "Zoom slider",
+          "displayNameKey": "Prop_interactions_zoomSlider",
+          "type": {
+            "bool": true
+          }
         }
       }
     }

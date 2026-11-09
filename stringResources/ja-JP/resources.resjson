@@ -182,6 +182,7 @@
   "Obj_interactions": "操作",
   "Prop_interactions_zoom": "ズーム",
   "Prop_interactions_yAutoFit": "ズーム時に Y を自動調整",
+  "Prop_interactions_zoomSlider": "ズーム スライダー",
   "Obj_axes": "軸",
   "Grp_xAxis": "X 軸",
   "Grp_yAxis": "Y 軸",
