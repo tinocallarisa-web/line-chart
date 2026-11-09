@@ -263,7 +263,7 @@ export class Visual implements IVisual {
         const step = ticks.length > 1 ? Math.abs(ticks[1] - ticks[0]) : maxAbs;
         const precision = Math.max(0, Math.min(4, Math.ceil(-Math.log10(step / unit) - 1e-9)));
         const f = valueFormatter.create({ format: fmt, value: maxAbs, precision, displayUnitSystemType: 2, cultureSelector: this.host.locale });
-        return (v: number) => f.format(v);
+        return (v: number) => (v === 0 ? this.formatter(fmt).format(0) : f.format(v));
     }
 
     private intlDate(d: Date, opts: Intl.DateTimeFormatOptions): string {
