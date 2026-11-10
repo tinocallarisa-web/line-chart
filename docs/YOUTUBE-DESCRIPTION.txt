@@ -3,8 +3,8 @@ TITLE (pick one)
 ==========================================
 
 1. Line chart for Power BI: actual vs plan, gap shading, events and end labels
-2. Power BI line chart that answers "are we on plan?" — no DAX tricks
-3. Your Power BI line chart drops to zero when a month is empty — here is the fix
+2. Power BI line chart that answers "are we on plan?"
+3. An empty month is not a collapse: a Power BI line chart that shows it as a gap
 4. Power BI line chart with plan, prior year, target, events and small multiples
 
 (Recommended: 1 for the release video, 3 for a short.)
@@ -39,8 +39,8 @@ CHAPTERS
 WHAT IT DOES
 ──────────────────────────────────────────
 ✅ A real date axis: an empty month is a gap, never a zero (or connect / zero, your choice)
-✅ End labels with the last value, kept apart so they never overlap
-✅ Plan, prior year and forecast as their own fields, with the gap to plan shaded green or red
+✅ End labels with the last value, kept apart so they do not overlap
+✅ Plan, prior year and forecast as their own fields; the gap to plan (or to prior year when there is no plan) shaded green or red
 ✅ The plan carries on dashed after the last actual month, marked "Actual | Plan"
 ✅ Target line from a measure: flat, or stepped when the target changes by period
 ✅ Trend line (linear or moving average), peaks and lows, smooth lines that never overshoot the data
@@ -55,7 +55,7 @@ FREE AND PRO
 ──────────────────────────────────────────
 FREE — a complete line chart:
 • Date axis with honest gaps, several series, secondary axis, end labels
-• Plan, prior year and forecast with gap shading and "Actual | Plan"
+• Plan, prior year and forecast as their own fields; gap shading against plan (or prior year) and "Actual | Plan"
 • Target line, trend line, peaks and lows, zoom, smooth lines
 • Report theme colours, per-series colour and line style, source note
 
@@ -64,7 +64,7 @@ PRO — the context around the numbers:
 • Annotations pinned to a point
 • Variance in the end label ("+4.2 % vs plan")
 • Small multiples
-• Show values as: index (first = 100), % change, running total
+• Show values as: index (first visible period = 100), % change from the first visible period, running total
 • Six style templates that match the rest of the TCViz collection
 
 Turn on a Pro feature while editing without a licence and it is drawn working on your own data, under a "Pro preview" watermark. Report readers without a licence see the free chart.
@@ -93,7 +93,7 @@ Support: support@tcviz.com
 SHORT (under 60 s) — DESCRIPTION
 ==========================================
 
-Your Power BI line chart drops to zero when a month is empty, and it cannot tell you if you are on plan. This one shows the gap, shades actual vs plan green or red, and pins your events on the timeline.
+Are we on plan, and why did that month drop? A measure that returns 0 instead of blank makes an empty month look like a collapse. Here an empty period is a gap (or connected, or zero: you choose), actual vs plan is shaded green or red, and your events are pinned on the timeline.
 Line Chart by TCViz: [APPSOURCE LINK]
 
 #PowerBI #LineChart #Shorts

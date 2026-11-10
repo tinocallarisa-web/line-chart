@@ -21,8 +21,8 @@ and notes on the timeline.
 ### Key highlights
 - **An empty month is a gap, not a zero.** A real date axis: points sit at their true distance, and a period without
   data breaks the line instead of falling to zero (or connects, or draws zero: your choice).
-- **Actual vs plan, free.** Plan, prior year and forecast as their own fields, with the gap shaded green above and red
-  below, split exactly where the lines cross.
+- **Actual vs plan, free.** Plan, prior year and forecast as their own fields, with the gap to plan (or to prior year
+  when there is no plan) shaded green above and red below, split exactly where the lines cross.
 - **The rest of the year on the same chart.** After the last actual month the plan carries on dashed, marked
   "Actual | Plan".
 - **The last value where you look.** End labels with the last value of every line, kept apart so they do not overlap.
@@ -39,12 +39,12 @@ Video: https://www.youtube.com/watch?v=R7EQ3PDNhMs
 - Real date axis with gaps (Break, Connect or Zero); text, numbers or a date hierarchy give a category axis, with drilldown
 - Up to 6 measures and a legend, plus up to 3 measures on a secondary axis
 - End labels with the last value, kept apart so they do not overlap
-- Plan, Prior year and Forecast fields; gap shading green / red split at the crossing; Split actual and plan
+- Plan, Prior year and Forecast fields; gap shading against Plan (or Prior year when there is no Plan), green / red split at the crossing; Split actual and plan
 - Target line from a measure, flat or stepped when the target changes by period
 - Trend line (linear or moving average), peaks and lows, smooth lines that never overshoot the data
 - Zoom with Ctrl + mouse wheel or the keyboard, optional zoom slider, Y axis that fits the zoomed range
 - Sort categories, source note under the chart
-- Colour, line style, width and markers per series; conditional formatting (*fx*) on colours
+- Colour, line style, width and markers per series; conditional formatting (*fx*) on the series colour (without a legend) and on the target line
 - Report theme (default) and Classic templates; setup guide and start screen
 - Cross-filtering, multi-select, highlight, bookmarks, context menu, report page tooltips
 - Keyboard navigation, screen-reader descriptions, high contrast
@@ -56,7 +56,7 @@ Video: https://www.youtube.com/watch?v=R7EQ3PDNhMs
 - **Variance in the end label:** "+4.2% vs plan", or against prior year, as % or absolute
 - **Small multiples:** one chart per region or plant, with columns, spacing, titles, panel styling and a shared or
   separate Y axis
-- **Show values as:** index (first = 100), % change, running total
+- **Show values as:** index (first visible period = 100), % change from the first visible period, running total
 - **Collection styles:** Boardroom, Ledger, Editorial, Signal, Aurora, Terrace
 
 ### Free vs Pro
@@ -68,7 +68,7 @@ Video: https://www.youtube.com/watch?v=R7EQ3PDNhMs
 | Plan, prior year, forecast, gap shading, Split actual and plan | ✓ | ✓ |
 | Target line, trend line, peaks and lows, smooth lines | ✓ | ✓ |
 | Zoom, sort categories, source note | ✓ | ✓ |
-| Report theme and Classic, per-series colour and line style, conditional formatting (*fx*) | ✓ | ✓ |
+| Report theme and Classic, per-series colour and line style, conditional formatting (*fx*) on the series colour and the target line | ✓ | ✓ |
 | Cross-filtering, highlight, bookmarks, drilldown, report page tooltips | ✓ | ✓ |
 | Keyboard navigation, high contrast, 12 languages | ✓ | ✓ |
 | Variance in the end label | — | **✓** |
@@ -103,7 +103,7 @@ Two events in the same period? `Event text = CONCATENATEX ( VALUES ( Events[Even
 - **Regions with a margin** — Legend = Region, Margin % on the secondary axis.
 - **Daily data** — zoom into a month, a 7-period moving average, peaks and lows.
 - **Campaigns and incidents (Pro)** — your Events table on the timeline.
-- **Growth, not size (Pro)** — Show values as → Index: every line starts at 100.
+- **Growth, not size (Pro)** — Show values as → Index: every line starts at 100 in the first visible period.
 
 ---
 

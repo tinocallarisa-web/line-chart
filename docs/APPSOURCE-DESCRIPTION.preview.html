@@ -1,17 +1,18 @@
-<!doctype html><meta charset='utf-8'><title>Vista previa de la ficha</title><body style='font:14px/1.5 Segoe UI,sans-serif;max-width:620px;margin:24px auto;color:#323130'><p style='color:#8a8886'>Vista previa aproximada (la tienda usa sus propios estilos). No se pega.</p><hr><p>A line chart of sales month by month answers "what happened". The meeting is about something else: are we on plan, and why did that month drop? A native line chart also falls to zero in a month without data, which tells everyone that sales collapsed when the data was simply not there.</p>
-<p>Line Chart by TCViz draws actual against plan and prior year with the gap shaded green or red, carries the plan on past the last actual month, puts the last value at the end of every line, and leaves an empty month as a gap, never a zero.</p>
+<!doctype html><meta charset='utf-8'><title>Vista previa de la ficha</title><body style='font:14px/1.5 Segoe UI,sans-serif;max-width:620px;margin:24px auto;color:#323130'><p style='color:#8a8886'>Vista previa aproximada (la tienda usa sus propios estilos). No se pega.</p><hr><p>The monthly review asks two questions: are we on plan, and why did that month drop? A line of sales month by month answers neither. And a measure that returns 0 instead of blank makes an empty month look like a collapse.</p>
+<p>Line Chart by TCViz draws actual against plan or prior year with the gap shaded green or red, carries the plan on past the last actual month, puts the last value at the end of every line, and draws an empty period as a gap: you choose Break, Connect or Zero.</p>
 <p style="color:#3E9C5B;margin:16px 0 4px"><b>✅ FREE: A COMPLETE LINE CHART</b></p>
 <div style="background:#F2F8F3;border:1px solid #CFE6D4;border-radius:8px;padding:8px 14px;margin:6px 0">
 <ul>
 <li>A real date axis: points at their true distance, an empty period drawn as a gap (or connected, or zero: your choice)</li>
 <li>Up to 6 measures and a legend, plus up to 3 measures on a secondary axis</li>
 <li>End labels with the last value of every line, kept apart so they do not overlap</li>
-<li>Plan, Prior year and Forecast as their own fields, with gap shading: green above, red below, split exactly where the lines cross</li>
+<li>Plan, Prior year and Forecast as their own fields; gap shading against Plan (or Prior year when there is no Plan): green above, red below, split exactly where the lines cross</li>
 <li>Split actual and plan: the plan carries on dashed after the last actual month, marked "Actual | Plan"</li>
 <li>Target line from a measure, flat or stepped when the target changes by period</li>
 <li>Trend line (linear or moving average), peaks and lows, smooth lines that never overshoot the data</li>
-<li>Zoom with Ctrl + mouse wheel or the keyboard, an optional zoom slider, sorted categories and a source note</li>
-<li>Report theme by default, colour and line style per series, conditional formatting (fx) on colours</li>
+<li>Zoom with Ctrl + mouse wheel or the keyboard, an optional zoom slider and a Y axis that fits the zoomed range</li>
+<li>Categories sorted by value or alphabetically, and a source note</li>
+<li>Report theme by default, colour and line style per series, conditional formatting (fx) on the series colour (without a legend) and on the target line</li>
 </ul>
 </div>
 <p style="color:#2B6CB0;margin:16px 0 4px"><b>⭐ PRO: THE CONTEXT AROUND THE NUMBERS</b></p>
@@ -21,7 +22,7 @@
 <li>Annotations pinned to a point on the line</li>
 <li>Variance in the end label: "+4.2% vs plan" or against prior year</li>
 <li>Small multiples: one chart per region or plant, with a shared or separate Y axis</li>
-<li>Show values as: index (first = 100), % change, running total</li>
+<li>Show values as: index (first visible period = 100), % change from the first visible period, running total</li>
 <li>Six collection styles (Boardroom, Ledger, Editorial, Signal, Aurora, Terrace) that match other TCViz visuals</li>
 </ul>
 </div>
@@ -30,7 +31,7 @@
 <p style="color:#1F4E80;margin:16px 0 4px"><b>🔗 WORKS LIKE A NATIVE VISUAL</b></p>
 <ul>
 <li>Click to filter, Ctrl+click for several, highlight from other visuals, bookmarks, drilldown on a hierarchy, context menu, report page tooltips</li>
-<li>Keyboard navigation, screen-reader descriptions and high contrast</li>
+<li>Keyboard navigation, screen-reader descriptions, high contrast and a layout that adapts down to a sparkline</li>
 <li>The number format of each measure, dynamic format strings included; format on the canvas; twelve languages; a setup guide and a start screen</li>
 </ul>
 <p style="color:#1F4E80;margin:16px 0 4px"><b>🔒 PRIVACY</b></p>

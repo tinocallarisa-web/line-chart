@@ -88,7 +88,7 @@ FREE_PRO = [
     ("Smooth lines that never overshoot the data (monotone curve)", "✓", "✓"),
     ("Zoom with Ctrl + mouse wheel or the keyboard, optional zoom slider, Y axis that fits the zoomed range", "✓", "✓"),
     ("Sort categories, source note under the chart", "✓", "✓"),
-    ("Colour, line style, width and markers per series; conditional formatting (fx) on colours", "✓", "✓"),
+    ("Colour, line style, width and markers per series; conditional formatting (fx) on the series colour (without a legend) and on the target line", "✓", "✓"),
     ("Report theme and Classic templates; setup guide and start screen", "✓", "✓"),
     ("Cross-filtering, multi-select, highlight, bookmarks, drilldown, context menu, report page tooltips, keyboard, high contrast", "✓", "✓"),
     ("Number format of the measure, dynamic format strings included; format on the canvas; 12 languages", "✓", "✓"),
@@ -97,12 +97,12 @@ FREE_PRO = [
     ("Small multiples", "—", "✓"),
     ("Events: vertical lines with their text, from a column of your own Events table or a measure", "—", "✓"),
     ("Annotations pinned to a point", "—", "✓"),
-    ("Show values as: index (first = 100), % change from the first period, running total", "—", "✓"),
+    ("Show values as: index (first visible period = 100), % change from the first visible period, running total", "—", "✓"),
 ]
 
 FORMAT = [
     ("Style template", "Report theme (default: the colours of your report theme, like a native visual), Classic, and the six collection styles Boardroom, Ledger, Editorial, Signal, Aurora and Terrace (Pro). A template only fills what you have not set yourself. Setup guide: turn it back on to see the guide again."),
-    ("Lines", "Line width; markers (auto, on, off) and marker size; missing values — Break the line, Connect over the gap, or Zero; smooth lines; Show values as (Pro): value, index, % change, running total. <strong>Colors</strong>: colour, line style (solid, dashed, dotted), width and markers per series. Without a Legend field the colour accepts conditional formatting (fx) rules, evaluated per point on the markers."),
+    ("Lines", "Line width; markers (auto, on, off) and marker size; missing values — Break the line, Connect over the gap, or Zero; smooth lines; Show values as (Pro): value, index (first visible period = 100), % change from the first visible period, running total; the base follows the zoom. With Show values as on, the target line is not drawn (an absolute target has no index), and a series whose base value is 0 is left empty. <strong>Colors</strong>: colour, line style (solid, dashed, dotted), width and markers per series. Without a Legend field the colour accepts conditional formatting (fx) rules, evaluated per point on the markers."),
     ("End labels", "Show; content — name and value, value, or name; maximum labels; text size; use the series colour or a fixed colour; variance vs plan or prior year (Pro): % or absolute."),
     ("Events (Pro)", "Show; line colour and style; show labels; label position top or bottom; text size. The full text is always in the tooltip."),
     ("Annotations (Pro)", "Show; text size and colour; background colour and opacity."),
@@ -129,7 +129,7 @@ USE_CASES = [
     ("Campaigns, price changes and incidents (Pro)",
      "An Events table with Date and Event, related to the calendar: each event is a vertical line with its text, so the reason for a jump is on the chart."),
     ("Comparing growth, not size (Pro)",
-     "Show values as → Index: every line starts at 100, so a small region that grew 30% is visibly ahead of a large one that grew 5%."),
+     "Show values as → Index: every line starts at 100 in the first visible period, so a small region that grew 30% is visibly ahead of a large one that grew 5%."),
 ]
 
 TROUBLE = [
@@ -148,7 +148,7 @@ TROUBLE = [
     ("“N values without a date on the axis”",
      "<p>Some rows have a blank date. They cannot be placed on a time axis, so they are left out and counted in the note. Check the relationship between your fact table and the calendar.</p>"),
     ("Gap shading or the variance label does not appear",
-     "<p>Both need a <strong>Plan</strong> or a <strong>Prior year</strong> field: without a reference there is nothing to compare against. Gap shading is in <em>Plan, prior year and forecast → Gap shading</em>.</p>"),
+     "<p>Both need a <strong>Plan</strong> or a <strong>Prior year</strong> field: without a reference there is nothing to compare against. Gap shading is in <em>Plan, prior year and forecast → Gap shading</em>. It is not drawn at very small sizes (compact and sparkline layouts).</p>"),
     ("Zoom does nothing",
      "<p>Zoom uses Ctrl + mouse wheel (Cmd on a Mac) or the + and − keys with the chart focused. It is off in format mode, when <em>Interactions → Zoom</em> is off, or when the report author turned interactions off. Esc or the <em>Reset zoom</em> button goes back to the full range.</p>"),
     ("I see a “Pro preview” watermark",
@@ -157,11 +157,12 @@ TROUBLE = [
 
 FAQ = [
     ("Why does an empty month break the line?",
-     "<p>Because a missing value is not a zero. A native line chart that drops to zero in a month without data tells the meeting that sales collapsed. "
-     "By default the line stops and starts again; you can connect over the gap or draw zero in <strong>Lines → Missing values</strong>.</p>"),
+     "<p>Because a missing value is not a zero. A line that drops to zero in a month without data tells the meeting that sales collapsed, when the data was simply not there. "
+     "If your measure returns 0 instead of BLANK(), the month is a real zero and is drawn as one; return BLANK() and it is a gap. By default the line stops and starts again; you can connect over the gap or draw zero in <strong>Lines → Missing values</strong>.</p>"),
     ("How does gap shading choose its colour?",
      "<p>The area between the actual line and the reference (Plan, or Prior year when there is no plan) is green where actual is above and red where it is below, split exactly at the point where the lines cross. "
-     "For costs, where lower is better, swap the two colours in <em>Plan, prior year and forecast</em>.</p>"),
+     "For costs, where lower is better, swap the two colours in <em>Plan, prior year and forecast</em>. The Forecast field is never used for gap shading. "
+     "Gap shading is not drawn at very small sizes, when the visual switches to its compact or sparkline layout.</p>"),
     ("What does “Split actual and plan” do?",
      "<p>When the plan or forecast has values after the last actual period, that part is drawn with a longer dash and a thin vertical line marks <strong>Actual | Plan</strong>. Turn it off in <em>Plan, prior year and forecast</em>.</p>"),
     ("How do I add events?",
@@ -174,6 +175,9 @@ FAQ = [
     ("How many fields and rows can it use?",
      "<p>Axis, Legend and Small multiples take one field each; Values up to 6 measures; Secondary values up to 3; Plan, Prior year, Forecast, Target line, Events and Annotations one each. "
      "Power BI sends up to 30,000 combinations of axis, panel and legend value; when more exist, a note in the visual says the chart is incomplete. The limits are the same in the free version and in Pro.</p>"),
+    ("Why does the target line disappear with Show values as?",
+     "<p>With <strong>Show values as</strong> (Pro) set to index, % change or running total, the target line is not drawn: an absolute target has no index. "
+     "Index and % change use the first visible period of each series as the base, so the base moves when you zoom. If that base value is 0, there is nothing to divide by and the series is left empty.</p>"),
     ("Does it use my number formats?",
      "<p>Yes: the number format of each measure from the model, <strong>dynamic format strings</strong> included, in the report's language. Show values as (Pro) uses its own format for index and %.</p>"),
     ("Does it follow my report theme?",
@@ -369,8 +373,10 @@ no data from this check. See the <a href="https://privacy.microsoft.com/privacys
 def terms():
     def plain(t):
         return html.unescape(re.sub(r"<[^>]+>", "", t))
+    corto = {"Show values as: index (first visible period = 100), % change from the first visible period, running total":
+             "Show values as: index, % change, running total"}
     free = "; ".join(plain(r[0][0].lower() + r[0][1:]) for r in FREE_PRO if r[1] == "✓")
-    pro = "; ".join(plain(r[0][0].lower() + r[0][1:]) for r in FREE_PRO if r[1] == "—")
+    pro = "; ".join(plain((lambda t: t[0].lower() + t[1:])(corto.get(r[0], r[0]))) for r in FREE_PRO if r[1] == "—")
     body = f'''<div class="wrap prose">
 <h1>Terms of Use</h1>
 <p><strong>Effective date:</strong> {FECHA} &nbsp;·&nbsp; applies to version {VERSION} and later</p>

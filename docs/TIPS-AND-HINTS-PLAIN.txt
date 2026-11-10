@@ -39,7 +39,7 @@ READING IT
 
 - A break in a line is a period without data, not a zero. Lines → Missing values: Break, Connect or Zero.
 - Gap shading: green where actual is above the reference, red where below, split where the lines cross. For costs,
-  swap the two colours.
+  swap the two colours. Not drawn at very small sizes (compact and sparkline layouts).
 - After the "Actual | Plan" mark only the plan or forecast continues, with a longer dash.
 - The linear trend runs from the first to the last point and is not extended: it is not a forecast.
 - Peaks & lows are found in the visible range, so they follow the zoom.
@@ -68,7 +68,8 @@ FORMAT PANE
 
 - Style template -- Report theme (default), Classic, and the six collection styles (Pro). Your own settings win.
 - Lines -- width, markers, missing values, smooth lines, Show values as (Pro); Colors: colour, line style, width and
-  markers per series, conditional formatting (fx) on the colour without a Legend.
+  markers per series, conditional formatting (fx) on the colour without a Legend. With Show values as on, the target
+  line is not drawn (an absolute target has no index), and a series whose base value is 0 is left empty.
 - End labels -- name and value, value or name; maximum labels; series colour; variance vs plan or PY (Pro).
 - Plan, prior year and forecast -- grey or series colour, show in legend, gap shading and its colours and opacity,
   split actual and plan.
@@ -84,7 +85,8 @@ PRO
 - Six collection styles: Boardroom, Ledger, Editorial, Signal, Aurora, Terrace.
 - Small multiples, with columns, spacing, titles, panel background and border, shared Y axis.
 - Events and annotations from your own text.
-- Show values as: index (first visible period = 100), % change from the first visible period, running total.
+- Show values as: index (first visible period = 100), % change from the first visible period, running total. The base
+  follows the zoom. The target line is not drawn in these modes, and a series whose base is 0 is left empty.
 
 Without a licence, a Pro feature you turn on while editing is drawn working under a "Pro preview" watermark; reading
 view shows the free chart. Licences are per user: everyone who should see the Pro features needs one.

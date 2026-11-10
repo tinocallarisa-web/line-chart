@@ -47,33 +47,34 @@ Left out: `small multiples`, `annotations` (functions, not problems), `year over
 
 ## Description
 
-*(3,261 characters as text; 4,045 as the HTML that is pasted, 4,088 counting CRLF; limit 5,000)*
+*(3,470 characters as text; 4,261 as the HTML that is pasted, 4,305 counting CRLF; limit 5,000)*
 
 Paste the **HTML**, not this text: `python C:\tcviz\utillaje\ficha_html.py "C:\tcviz\dev\LineChart"` writes
 `docs/APPSOURCE-DESCRIPTION.html` (brand template). The 5,000-character limit counts the tags.
 
 ```
-A line chart of sales month by month answers "what happened". The meeting is about something else: are we on plan, and why did that month drop? A native line chart also falls to zero in a month without data, which tells everyone that sales collapsed when the data was simply not there.
+The monthly review asks two questions: are we on plan, and why did that month drop? A line of sales month by month answers neither. And a measure that returns 0 instead of blank makes an empty month look like a collapse.
 
-Line Chart by TCViz draws actual against plan and prior year with the gap shaded green or red, carries the plan on past the last actual month, puts the last value at the end of every line, and leaves an empty month as a gap, never a zero.
+Line Chart by TCViz draws actual against plan or prior year with the gap shaded green or red, carries the plan on past the last actual month, puts the last value at the end of every line, and draws an empty period as a gap: you choose Break, Connect or Zero.
 
 FREE: A COMPLETE LINE CHART
 • A real date axis: points at their true distance, an empty period drawn as a gap (or connected, or zero: your choice)
 • Up to 6 measures and a legend, plus up to 3 measures on a secondary axis
 • End labels with the last value of every line, kept apart so they do not overlap
-• Plan, Prior year and Forecast as their own fields, with gap shading: green above, red below, split exactly where the lines cross
+• Plan, Prior year and Forecast as their own fields; gap shading against Plan (or Prior year when there is no Plan): green above, red below, split exactly where the lines cross
 • Split actual and plan: the plan carries on dashed after the last actual month, marked "Actual | Plan"
 • Target line from a measure, flat or stepped when the target changes by period
 • Trend line (linear or moving average), peaks and lows, smooth lines that never overshoot the data
-• Zoom with Ctrl + mouse wheel or the keyboard, an optional zoom slider, sorted categories and a source note
-• Report theme by default, colour and line style per series, conditional formatting (fx) on colours
+• Zoom with Ctrl + mouse wheel or the keyboard, an optional zoom slider and a Y axis that fits the zoomed range
+• Categories sorted by value or alphabetically, and a source note
+• Report theme by default, colour and line style per series, conditional formatting (fx) on the series colour (without a legend) and on the target line
 
 PRO: THE CONTEXT AROUND THE NUMBERS
 • Events: vertical lines with their text, straight from a column of your own Events table
 • Annotations pinned to a point on the line
 • Variance in the end label: "+4.2% vs plan" or against prior year
 • Small multiples: one chart per region or plant, with a shared or separate Y axis
-• Show values as: index (first = 100), % change, running total
+• Show values as: index (first visible period = 100), % change from the first visible period, running total
 • Six collection styles (Boardroom, Ledger, Editorial, Signal, Aurora, Terrace) that match other TCViz visuals
 
 FREE AND PRO
@@ -81,7 +82,7 @@ The free version is a complete, correct line chart, with plan, gap shading and t
 
 WORKS LIKE A NATIVE VISUAL
 • Click to filter, Ctrl+click for several, highlight from other visuals, bookmarks, drilldown on a hierarchy, context menu, report page tooltips
-• Keyboard navigation, screen-reader descriptions and high contrast
+• Keyboard navigation, screen-reader descriptions, high contrast and a layout that adapts down to a sparkline
 • The number format of each measure, dynamic format strings included; format on the canvas; twelve languages; a setup guide and a start screen
 
 PRIVACY
@@ -115,7 +116,7 @@ No "What's new" block: this is the first version.
 📝 Annotations pinned to a point on the line.
 📊 Variance in the end label: "+4.2% vs plan" or against prior year.
 🗂️ Small multiples: one chart per region, plant or team.
-📈 Show values as: index (first = 100), % change, running total.
+📈 Show values as: index (first visible period = 100), % change from the first visible period, running total.
 🎨 Six collection styles: Boardroom, Ledger, Editorial, Signal, Aurora and Terrace.
 ✅ Includes everything in the free version: real date axis, plan with gap shading, target and trend lines, zoom.
 ```
@@ -134,8 +135,8 @@ No "What's new" block: this is the first version.
 | Changelog | https://tinocallarisa-web.github.io/line-chart/changelog.html |
 | Source | https://github.com/tinocallarisa-web/line-chart |
 | Product page | https://tcviz.com/product/line-chart/ |
-| Logo | `assets/icon_300x300.png` (Tino's, not in the repo yet) |
-| Screenshots | 1366x768, chosen by Tino (not in the repo) |
+| Logo | `assets/icon_300x300.png` |
+| Screenshots | `assets/Image_1.png`, `assets/Image_2.png`, `assets/Image_3.png` (1366x768; Image_1 is being redone) |
 | Package | `dist/lineChartTCVizD8CCBAB58761478B9C59A5FA700EC503.1.0.0.0.pbiviz` |
 | Sample report | `LineChart_sample.pbix` (6 pages; no `_test` in the name) |
 
