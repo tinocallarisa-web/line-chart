@@ -136,7 +136,7 @@ No "What's new" block: this is the first version.
 | Source | https://github.com/tinocallarisa-web/line-chart |
 | Product page | https://tcviz.com/product/line-chart/ |
 | Logo | `assets/icon_300x300.png` |
-| Screenshots | `assets/Image_1.png`, `assets/Image_2.png`, `assets/Image_3.png` (1366x768; Image_1 is being redone) |
+| Screenshots | `assets/infographic.png` (free), `assets/infographic-pro.png` (Pro), then `assets/Image_1.png`, `assets/Image_2.png`, `assets/Image_3.png` (all 1366x768; infographics regenerated with `python tools/gen_infographic.py`) |
 | Package | `dist/lineChartTCVizD8CCBAB58761478B9C59A5FA700EC503.1.0.0.0.pbiviz` |
 | Sample report | `LineChart_sample.pbix` (6 pages; no `_test` in the name) |
 
