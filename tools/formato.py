@@ -54,7 +54,7 @@ OBJECTS = [
         ("width", "Line width", "num", 1.5, {"min": 0.5, "max": 6}),
         ("legend", "Show in legend", "bool", True, {}),
         # Bloque 2 (Pro): banda entre la serie real y su referencia (plan, o año anterior), partida en el cruce.
-        ("gapShading", "Gap shading (Pro)", "bool", False, {}),
+        ("gapShading", "Gap shading", "bool", False, {}),
         ("aboveColor", "Above the reference", "fill", "#2E7D32", {}),
         ("belowColor", "Below the reference", "fill", "#C62828", {}),
         ("gapOpacity", "Shading opacity (%)", "num", 18, {"min": 5, "max": 30}),

@@ -6,8 +6,9 @@
  * como líneas grises, etiquetas al final con el último valor no vacío, color por serie, tooltip con cruceta, resaltado,
  * selección, teclado, alto contraste, mosaico pequeño, landing de la serie, asistente y formato desde el lienzo.
  *
- * Pro (bloque 2), con vista previa por función solo editando y bajo marca de agua: los seis estilos de la colección,
- * la banda real-vs-referencia partida en el cruce, el desvío en la etiqueta final y small multiples.
+ * Pro, con vista previa por función solo editando y bajo marca de agua: los seis estilos de la colección, el desvío
+ * en la etiqueta final, small multiples, eventos, anotaciones y "Show values as". La banda real-vs-referencia
+ * partida en el cruce (Gap shading) es gratis desde el 10-11-2026 (decisión de Tino).
  *
  * Reglas de la cartera que se cumplen aquí:
  *  - renderingStarted / Finished|Failed 1:1 por update(): los repintados internos (licencia, hover, selección,
@@ -53,7 +54,7 @@ const TEST_STAMP = ""; // TEST_STAMP_MARKER
 
 /**
  * Plan previsto en Partner Center (serie económica, como Radar: 0,99/mes · 9,99/año). Funciones Pro: estilos de la
- * colección, banda real-vs-referencia, desvío en la etiqueta final y small multiples. El Plan ID DEBE ser el que se
+ * colección, desvío, small multiples, eventos, anotaciones y Show values as. El Plan ID DEBE ser el que se
  * escriba al crear el plan.
  */
 const PLAN_IDS = ["line-chart-pro"];
@@ -497,7 +498,6 @@ export class Visual implements IVisual {
         const vmode = String(objs.lines?.valueMode ?? "value");
         const groups: [string, boolean, string][] = [
             ["style templates", PRO_STYLES.indexOf(tpl) >= 0, "style=" + tpl],
-            ["gap shading", objs.references?.gapShading === true && objs.references?.show !== false && hasRef, "gap=" + (objs.references?.gapShading === true)],
             ["variance label", (variance === "pct" || variance === "abs") && objs.endLabels?.show !== false && hasRef, "var=" + variance],
             ["small multiples", hasSm, "sm=" + hasSm],
             ["events", hasEv, "ev=" + hasEv],
@@ -524,7 +524,6 @@ export class Visual implements IVisual {
     private featName(id: string): string {
         switch (id) {
             case "style templates": return this.t("Feat_styles", "collection styles");
-            case "gap shading": return this.t("Feat_gap", "gap shading");
             case "variance label": return this.t("Feat_variance", "variance label");
             case "small multiples": return this.t("Feat_panels", "small multiples");
             case "events": return this.t("Feat_events", "events");
@@ -1287,7 +1286,8 @@ export class Visual implements IVisual {
         const showMarkers = mode !== "spark" && (markerMode === "on" || (markerMode === "auto" && Kv <= 40 && L.plotW / Kv >= 10) || hc);
         const series = mode === "spark" ? m.series.slice(0, 8) : m.series;
         // Banda real-vs-referencia (Pro): no en el mosaico pequeño (< 220 × 140), donde solo sería ruido.
-        const bandOn = refsOn && mode === "full" && !!s.references.gapShading && this.previewOf("gap shading");
+        // Banda real-vs-referencia (gratis desde el 10-11): no en el mosaico pequeño, donde solo sería ruido.
+        const bandOn = refsOn && mode === "full" && !!s.references.gapShading;
 
         series.forEach((ser, si) => {
             const y = yOf(ser);
@@ -2925,7 +2925,6 @@ export class Visual implements IVisual {
             const objs: any = this.dataView?.metadata?.objects ?? {};
             const hasRef = has("plan") || has("previousYear");
             const estilo = PRO_STYLES.indexOf(String(objs.style?.template ?? "")) >= 0;
-            const banda = objs.references?.gapShading === true;
             const desvio = ["pct", "abs"].indexOf(String(objs.endLabels?.variance ?? "off")) >= 0;
             const needRef = this.t("Guide_NeedsRef", "add Plan or Prior year first");
             const evOn = has("events") && objs.events?.show !== false;
@@ -2933,8 +2932,6 @@ export class Visual implements IVisual {
             const pruebas: [string, string, boolean, boolean, () => void, string][] = [
                 [this.t("Guide_TryStyles", "Collection styles"), this.t("Guide_TryStylesWhy", "six looks shared with KPI Card, Pareto and the rest of TCViz"),
                     estilo, true, () => this.persistir("style", { template: estilo ? "report" : "boardroom" }), ""],
-                [this.t("Guide_TryGap", "Gap shading"), this.t("Guide_TryGapWhy", "green above the plan, red below, split exactly where the lines cross"),
-                    banda, hasRef, () => this.persistir("references", banda ? { gapShading: false } : { gapShading: true, show: true }), needRef],
                 [this.t("Guide_TryVariance", "Variance on the end label"), this.t("Guide_TryVarianceWhy", "the last value and how far it is from plan: −9.1% vs plan"),
                     desvio, hasRef, () => this.persistir("endLabels", desvio ? { variance: "off" } : { variance: "pct", show: true }), needRef],
                 // Eventos y anotaciones se piden poniendo el campo: el botón solo enciende o apaga su tarjeta.

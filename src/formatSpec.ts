@@ -334,7 +334,7 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "type": "bool",
                 "def": false,
                 "key": "Prop_references_gapShading",
-                "label": "Gap shading (Pro)"
+                "label": "Gap shading"
             },
             {
                 "name": "aboveColor",

@@ -415,7 +415,7 @@
           }
         },
         "gapShading": {
-          "displayName": "Gap shading (Pro)",
+          "displayName": "Gap shading",
           "displayNameKey": "Prop_references_gapShading",
           "type": {
             "bool": true
