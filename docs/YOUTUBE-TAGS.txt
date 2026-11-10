@@ -1,0 +1,19 @@
+==========================================
+YOUTUBE TAGS — PASTE THIS BLOCK (under 500 characters)
+==========================================
+
+Power BI,Power BI custom visual,line chart,Power BI line chart,actual vs plan,budget vs actual,plan vs actual,time series,prior year comparison,target line,trend line,events timeline,annotations,small multiples,AppSource,data visualization,TCViz,Line Chart by TCViz
+
+
+==========================================
+EXTRA TAGS (swap in by audience)
+==========================================
+
+Finance / controlling:
+forecast vs actual, variance analysis, monthly reporting, budget tracking
+
+Sales:
+sales trend, sales by region, year over year, YoY comparison
+
+Power BI general:
+Power BI tutorial, Power BI tips, Power BI dashboard, line chart with events, end labels

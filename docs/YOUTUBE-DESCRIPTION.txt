@@ -1,0 +1,108 @@
+==========================================
+TITLE (pick one)
+==========================================
+
+1. Line chart for Power BI: actual vs plan, gap shading, events and end labels
+2. Power BI line chart that answers "are we on plan?" — no DAX tricks
+3. Your Power BI line chart drops to zero when a month is empty — here is the fix
+4. Power BI line chart with plan, prior year, target, events and small multiples
+
+(Recommended: 1 for the release video, 3 for a short.)
+
+
+==========================================
+YOUTUBE DESCRIPTION — FULL VIDEO
+==========================================
+
+A line chart that shows sales month by month answers "what happened". The meeting is about something else: are we on plan, and why did that month drop? Line Chart by TCViz draws actual against plan and prior year with the gap shaded green or red, carries the plan on past the last actual month, puts the last value at the end of every line, and pins your own events and notes on the timeline.
+
+Get it on Microsoft AppSource: [APPSOURCE LINK — once the offer is published]
+Documentation and FAQ: https://tinocallarisa-web.github.io/line-chart/support.html
+
+──────────────────────────────────────────
+CHAPTERS
+──────────────────────────────────────────
+0:00 The question a normal line chart does not answer
+0:00 Date axis and Values: end labels with the last value
+0:00 Plan: gap shading and "Actual | Plan" past the last actual month
+0:00 Prior year, forecast and a target line
+0:00 Regions in the legend and margin on a secondary axis
+0:00 Events from your own table, and annotations
+0:00 Daily data: zoom, trend line, peaks and lows
+0:00 Small multiples by region
+0:00 Style templates and "Show values as" (index = 100)
+0:00 Free and Pro
+
+(Fill in the timestamps from the final edit. Delete any chapter the video does not show.)
+
+──────────────────────────────────────────
+WHAT IT DOES
+──────────────────────────────────────────
+✅ A real date axis: an empty month is a gap, never a zero (or connect / zero, your choice)
+✅ End labels with the last value, kept apart so they never overlap
+✅ Plan, prior year and forecast as their own fields, with the gap to plan shaded green or red
+✅ The plan carries on dashed after the last actual month, marked "Actual | Plan"
+✅ Target line from a measure: flat, or stepped when the target changes by period
+✅ Trend line (linear or moving average), peaks and lows, smooth lines that never overshoot the data
+✅ Several measures, a legend and a secondary axis at the same time
+✅ Zoom with Ctrl + wheel, sort categories, a source note under the chart
+✅ Click to filter, highlight, drilldown, keyboard navigation, context menu and high contrast
+✅ The measure's number format, dynamic format strings included; twelve languages
+✅ No network requests: everything is computed inside your report
+
+──────────────────────────────────────────
+FREE AND PRO
+──────────────────────────────────────────
+FREE — a complete line chart:
+• Date axis with honest gaps, several series, secondary axis, end labels
+• Plan, prior year and forecast with gap shading and "Actual | Plan"
+• Target line, trend line, peaks and lows, zoom, smooth lines
+• Report theme colours, per-series colour and line style, source note
+
+PRO — the context around the numbers:
+• Events: vertical lines with their text, straight from a column of your own Events table
+• Annotations pinned to a point
+• Variance in the end label ("+4.2 % vs plan")
+• Small multiples
+• Show values as: index (first = 100), % change, running total
+• Six style templates that match the rest of the TCViz collection
+
+Turn on a Pro feature while editing without a licence and it is drawn working on your own data, under a "Pro preview" watermark. Report readers without a licence see the free chart.
+
+──────────────────────────────────────────
+EVENTS IN ONE MINUTE
+──────────────────────────────────────────
+1. Make a table Events with two columns: Date and Event.
+2. Relate Events[Date] to your calendar date.
+3. Drag Events[Event] to the Events field and set it to "First".
+Two events in the same month? Use a measure instead:
+Event text = CONCATENATEX ( VALUES ( Events[Event] ), Events[Event], " · " )
+
+──────────────────────────────────────────
+LINKS
+──────────────────────────────────────────
+Documentation: https://tinocallarisa-web.github.io/line-chart/support.html
+Questions: https://github.com/tinocallarisa-web/line-chart/discussions
+All TCViz visuals: https://tcviz.com
+Support: support@tcviz.com
+
+#PowerBI #LineChart #DataVisualization
+
+
+==========================================
+SHORT (under 60 s) — DESCRIPTION
+==========================================
+
+Your Power BI line chart drops to zero when a month is empty, and it cannot tell you if you are on plan. This one shows the gap, shades actual vs plan green or red, and pins your events on the timeline.
+Line Chart by TCViz: [APPSOURCE LINK]
+
+#PowerBI #LineChart #Shorts
+
+
+==========================================
+NOTE
+==========================================
+The AppSource link and the documentation pages work once the offer and the GitHub repo are published. Until then,
+upload the video as UNLISTED. After uploading, send the canonical URL (https://www.youtube.com/watch?v=…): it goes
+in Partner Center (Offer listing → Videos), in src/visual.ts (start-screen link) and in the documentation. Never a
+short link.
