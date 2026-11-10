@@ -238,6 +238,8 @@ export class Visual implements IVisual {
     private visLo = 0;
     private visHi = -1;
     private resetEl: HTMLButtonElement;
+    /** Etiquetas de eventos ya colocadas en su banda (panel en curso). */
+    private evPlan: { labels: { x0: number; w: number; row: number; txt: string }[]; rows: number; rowH: number; fs: number; bottom: boolean } | null = null;
     /** Mostrar valores como (Pro) en este render: "value" sin licencia ni vista previa. */
     private valueMode = "value";
     private clipCounter = 0;
@@ -355,6 +357,21 @@ export class Visual implements IVisual {
         return this.formatter(fmt, scale ?? Math.abs(v)).format(v);
     }
 
+    /**
+     * Valor compacto con 3 cifras significativas (490K, 2,06M, 12,5K): las unidades automáticas sin los decimales
+     * fijos del formato de la medida, que con unidades dan "489,81K".
+     */
+    private fmtCompact(v: number, fmt: string | undefined): string {
+        const a = Math.abs(v);
+        if (Visual.isPct(fmt) || a < 1000) return this.fmtShort(v, fmt, a);
+        const unit = a >= 1e12 ? 1e12 : a >= 1e9 ? 1e9 : a >= 1e6 ? 1e6 : 1e3;
+        const scaled = a / unit;
+        const precision = Math.max(0, Math.min(2, 3 - (Math.floor(Math.log10(Math.max(scaled, 1))) + 1)));
+        try {
+            return valueFormatter.create({ format: fmt, value: a, precision, displayUnitSystemType: 2, cultureSelector: this.host.locale }).format(v);
+        } catch { return this.fmtShort(v, fmt, a); }
+    }
+
     /** Marcas de un eje: misma unidad y mismos decimales en todas (0,8K · 1,0K · 1,2K, no 0.8K · 1K). */
     private tickFormatter(ticks: number[], fmt: string | undefined): (v: number) => string {
         const maxAbs = Math.max(...ticks.map(Math.abs), 0);
@@ -372,8 +389,13 @@ export class Visual implements IVisual {
 
     /** Etiqueta de una clave del eje, con el formato de su columna. */
     private keyLabel(k: number): string {
+        return this.keyParts(k).join(" ");
+    }
+
+    /** Partes de la etiqueta de una clave, una por columna del eje (año, mes… en una jerarquía expandida). */
+    private keyParts(k: number): string[] {
         const m = this.model;
-        if (!m || k < 0 || k >= m.keys.length) return "";
+        if (!m || k < 0 || k >= m.keys.length) return [];
         return m.keys[k].raw.map((v, i) => {
             const src = m.axisCols[i].source;
             if (v instanceof Date) {
@@ -381,7 +403,7 @@ export class Visual implements IVisual {
             }
             if (typeof v === "number") return src.format ? this.formatter(src.format).format(v) : String(v);
             return String(v);
-        }).join(" ");
+        });
     }
 
     private measure(text: string, size: number, bold = false): number {
@@ -393,10 +415,10 @@ export class Visual implements IVisual {
         return this.canvasCtx.measureText(text).width;
     }
 
-    private fit(text: string, size: number, maxW: number): string {
-        if (this.measure(text, size) <= maxW) return text;
+    private fit(text: string, size: number, maxW: number, bold = false): string {
+        if (this.measure(text, size, bold) <= maxW) return text;
         let lo = 0, hi = text.length;
-        while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (this.measure(text.slice(0, mid) + "…", size) <= maxW) lo = mid; else hi = mid - 1; }
+        while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (this.measure(text.slice(0, mid) + "…", size, bold) <= maxW) lo = mid; else hi = mid - 1; }
         return lo > 0 ? text.slice(0, lo) + "…" : "";
     }
 
@@ -1228,6 +1250,15 @@ export class Visual implements IVisual {
             this.x = K === 1 ? () => L.left + L.plotW / 2 : (p: number) => sx(p);
             if (L.xAxis) this.drawCatAxis(L);
         }
+        // Etiquetas de eventos: se colocan ya (hace falta la escala X) y se les reserva su banda DENTRO del área, arriba
+        // (o abajo): la escala Y se encoge para que ni los datos ni el eje queden debajo de una etiqueta.
+        this.evPlan = mode === "full" && this.eventsOn() ? this.planEvents(L) : null;
+        if (this.evPlan && this.evPlan.labels.length) {
+            const band = this.evPlan.rows * this.evPlan.rowH + 3;
+            const r: [number, number] = this.evPlan.bottom ? [L.top + L.plotH - band, L.top] : [L.top + L.plotH, L.top + band];
+            this.y1.range(r);
+            if (this.y2) this.y2.range(r);
+        }
         if (mode === "full") this.drawYAxes(L, hasY1, hasY2);
 
         // Capas: banda debajo de todo, luego referencias y líneas. Con zoom, todo lo de dentro del área se recorta a ella.
@@ -1422,13 +1453,14 @@ export class Visual implements IVisual {
         if (s.endLabels.show && W >= (inPanel ? 220 : 320)) {
             const fs = Number(s.endLabels.fontSize);
             const cands = this.labelCandidates();
-            const lab = cands.map(c => this.measure(c.text, fs)).reduce((a, b) => Math.max(a, b), 0);
+            const tl = this.targetEndLabel();
+            const lab = cands.map(c => this.measure(c.text, fs, true)).concat(tl ? [this.measure(tl.text, fs, true)] : []).reduce((a, b) => Math.max(a, b), 0);
             // Con desvío la etiqueta es más larga: un poco más de sitio (el nombre se acorta antes que el desvío).
             const cap = cands.some(c => c.vari) ? 0.38 : 0.3;
             if (lab > 0) { L.labels = true; L.labelW = Math.min(lab + 16, W * cap); }
         }
         // Eje de fechas por debajo de un año: dos filas (mes o día arriba, año abajo solo cuando empieza).
-        L.xExtra = m.isTime && m.cadence < 300 * 86400000 ? xfs + 2 : 0;
+        L.xExtra = (m.isTime && m.cadence < 300 * 86400000) || (!m.isTime && m.axisCols.length >= 2) ? xfs + 2 : 0;
         // Franja de zoom: un panel, con sitio y con zoom permitido (no en small multiples: Ctrl+rueda y teclado).
         L.brushH = !inPanel && this.zoomable && !!s.interactions?.zoomSlider && m.keys.length >= 3 && H >= 240 && W >= 320 ? 16 : 0;
         const compute = () => {
@@ -1504,7 +1536,11 @@ export class Visual implements IVisual {
         const fs = Number(s.xAxis.fontSize);
         const K = m.keys.length;
         const lo = Math.max(0, this.visLo), hi = this.visHi >= 0 ? this.visHi : K - 1;
-        const labels = m.keys.map((_k, i) => (i >= lo && i <= hi ? this.keyLabel(i) : ""));
+        // Jerarquía expandida (año › mes): el último nivel arriba y los superiores en la 2.ª fila, solo cuando cambian.
+        const two = L.xExtra > 0 && m.axisCols.length >= 2;
+        const parts = m.keys.map((_k, i) => (i >= lo && i <= hi ? this.keyParts(i) : []));
+        const labels = parts.map(pp => (two ? pp[pp.length - 1] ?? "" : pp.join(" ")));
+        let lastUpper = "";
         const widest = Math.max(...labels.map(l => this.measure(l, fs)));
         const slot = L.plotW / Math.max(1, hi - lo + 1);
         const maxW = Math.max(30, Math.min(widest, 140));
@@ -1516,7 +1552,13 @@ export class Visual implements IVisual {
             const x = this.x(m.keys[i].pos);
             const room = Math.max(20, Math.min(slot * every - 6, 160));
             g.append("text").attr("x", x).attr("y", y + 5 + fs * 0.8).attr("text-anchor", "middle").style("font-size", fs + "px")
-                .attr("fill", color).text(this.fit(labels[i], fs, room)).append("title").text(labels[i]);
+                .attr("fill", color).text(this.fit(labels[i], fs, room)).append("title").text(this.keyLabel(i));
+            const upper = two ? parts[i].slice(0, -1).join(" ") : "";
+            if (two && upper !== lastUpper) {
+                lastUpper = upper;
+                g.append("text").attr("class", "lc-x-year").attr("x", x).attr("y", y + 5 + fs * 0.8 + fs + 2).attr("text-anchor", "middle")
+                    .style("font-size", fs + "px").style("font-weight", "600").attr("fill", color).text(this.fit(upper, fs, Math.max(room, 60)));
+            }
         }
         this.drawXTitle(L, g);
     }
@@ -1867,6 +1909,8 @@ export class Visual implements IVisual {
             }
         }
         if (!s.showLabel || L.mode !== "full") return;
+        // Con etiquetas finales, la del objetivo va con ellas (misma columna y misma anticolisión).
+        if (L.labels) return;
         if (this.zoomEff) {
             const lastIn = pts.filter(p => p.k <= this.visHi).pop();
             if (!lastIn) return;
@@ -1903,53 +1947,68 @@ export class Visual implements IVisual {
                 .attr("stroke", color).attr("stroke-width", 1).attr("stroke-dasharray", dash || null).attr("stroke-linecap", "round")
                 .attr("opacity", this.hc ? 1 : 0.8).style("pointer-events", this.formatMode ? null : "none");
         }
-        // Visual pequeño: solo las líneas (las etiquetas taparían los datos; el texto sigue en el tooltip).
-        if (!s.showLabels || L.mode !== "full" || L.plotH < 100 || L.plotW < 220) return;
-        const fs = Number(s.fontSize);
-        const rowH = fs + 7;
-        const maxRows = Math.max(1, Math.min(4, Math.floor((L.plotH * 0.3) / rowH)));
-        const maxW = Math.max(48, Math.min(170, L.plotW * 0.3));
-        const right: number[] = new Array(maxRows).fill(-Infinity);
-        const bottom = String(s.labelPosition) === "bottom";
-        const xr = L.left + L.plotW;
+        const plan = this.evPlan;
+        if (!plan || !plan.labels.length) return;
+        const { rowH, fs, bottom } = plan;
         const gl = this.canvas.append("g").attr("class", "lc-event-labels").style("pointer-events", this.formatMode ? null : "none");
+        if (this.clipId) gl.attr("clip-path", `url(#${this.clipId})`);
         const textColor = this.hc ? this.hcFg : this.readable(color, this.ink);
-        const rowY = (row: number) => bottom ? L.top + L.plotH - 2 - (row + 1) * rowH + 1 : L.top + 2 + row * rowH;
-        const fixed = boxes.slice();   // lo ya colocado (la etiqueta del objetivo)
-        const place = (it: { x: number }, txt: string): { x0: number; w: number; row: number } | null => {
-            const w = this.measure(txt, fs) + 8;
-            let x0 = it.x + 2;
-            if (x0 + w > xr) x0 = it.x - 2 - w;
-            if (x0 < L.left) return null;
-            for (let row = 0; row < maxRows; row++) {
-                if (x0 <= right[row] + 3) continue;
-                const y0 = rowY(row);
-                if (Visual.overlaps({ x0, y0, x1: x0 + w, y1: y0 + rowH - 2 }, fixed)) continue;
-                return { x0, w, row };
-            }
+        const h = rowH - 2;
+        for (const p of plan.labels) {
+            const y0 = bottom ? L.top + L.plotH - (p.row + 1) * rowH - 1 : L.top + 1 + p.row * rowH;
+            gl.append("rect").attr("class", "lc-event-box").attr("x", p.x0).attr("y", y0).attr("width", p.w).attr("height", h).attr("rx", 2)
+                .attr("fill", this.hc ? this.hcBg : this.bgColor).attr("fill-opacity", this.hc ? 1 : 0.92)
+                .attr("stroke", color).attr("stroke-width", 0.6).attr("stroke-opacity", 0.7);
+            gl.append("text").attr("class", "lc-event-label").attr("x", p.x0 + 4).attr("y", y0 + h / 2).attr("dy", "0.35em")
+                .style("font-size", fs + "px").attr("fill", textColor).text(p.txt);
+            boxes.push({ x0: p.x0, y0, x1: p.x0 + p.w, y1: y0 + h });
+        }
+    }
+
+    /**
+     * Coloca las etiquetas de los eventos en filas (como mucho 3 y no más del 25 % del alto), midiendo con la fuente
+     * REAL del estilo (Ledger y Editorial usan Georgia: más ancha y más alta que Segoe). De izquierda a derecha, cada
+     * etiqueta va en la primera fila libre; si no cabe entera, se recorta con … hasta el siguiente evento (con un
+     * mínimo legible); si ni así, se queda sin etiqueta: con muchos eventos manda la legibilidad (el texto completo
+     * sigue en el tooltip y en el foco de teclado).
+     */
+    private planEvents(L: Layout): { labels: { x0: number; w: number; row: number; txt: string }[]; rows: number; rowH: number; fs: number; bottom: boolean } | null {
+        const m = this.model, s = this.settings.events;
+        if (!s.showLabels || L.plotH < 100 || L.plotW < 220) return null;
+        const fs = Number(s.fontSize);
+        const rowH = Math.ceil(fs * 1.35) + 6;
+        const maxRows = Math.max(0, Math.min(3, Math.floor((L.plotH * 0.25) / rowH)));
+        if (!maxRows) return null;
+        const maxW = Math.max(60, Math.min(160, L.plotW * 0.25));
+        const minW = Math.min(maxW, Math.max(56, fs * 6));
+        const xl = L.left, xr = L.left + L.plotW;
+        const items: { t: string; x: number }[] = [];
+        m.events.forEach((t, k) => { if (t && k >= this.visLo && k <= this.visHi) items.push({ t, x: this.x(m.keys[k].pos) }); });
+        const right: number[] = new Array(maxRows).fill(-Infinity);
+        const labels: { x0: number; w: number; row: number; txt: string }[] = [];
+        const place = (x: number, txt: string): { x0: number; w: number; row: number } | null => {
+            const w = this.measure(txt, fs) + 9;
+            let x0 = x + 2;
+            if (x0 + w > xr) x0 = x - 2 - w;
+            if (x0 < xl) return null;
+            for (let row = 0; row < maxRows; row++) if (x0 > right[row] + 4) return { x0, w, row };
             return null;
         };
         items.forEach((it, i) => {
             let txt = this.fit(it.t, fs, maxW);
-            let p = txt ? place(it, txt) : null;
+            let p = txt ? place(it.x, txt) : null;
             if (!p) {
-                // Recortar hasta el siguiente evento (mínimo unas letras); si no, se queda sin etiqueta.
                 const next = i + 1 < items.length ? items[i + 1].x : xr;
-                const room = Math.min(maxW, next - it.x - 14);
-                txt = room >= 34 ? this.fit(it.t, fs, room) : "";
-                p = txt ? place(it, txt) : null;
+                const room = Math.min(maxW, next - it.x - 15);
+                txt = room >= minW ? this.fit(it.t, fs, room) : "";
+                p = txt ? place(it.x, txt) : null;
             }
             if (!p) return;
             right[p.row] = p.x0 + p.w;
-            const y0 = rowY(p.row);
-            const h = rowH - 2;
-            gl.append("rect").attr("class", "lc-event-box").attr("x", p.x0).attr("y", y0).attr("width", p.w).attr("height", h).attr("rx", 2)
-                .attr("fill", this.hc ? this.hcBg : this.bgColor).attr("fill-opacity", this.hc ? 1 : 0.88)
-                .attr("stroke", color).attr("stroke-width", 0.6).attr("stroke-opacity", 0.7);
-            gl.append("text").attr("class", "lc-event-label").attr("x", p.x0 + 4).attr("y", y0 + h / 2).attr("dy", "0.34em")
-                .style("font-size", fs + "px").attr("fill", textColor).text(txt);
-            boxes.push({ x0: p.x0, y0, x1: p.x0 + p.w, y1: y0 + h });
+            labels.push({ ...p, txt });
         });
+        const rows = labels.reduce((a, l) => Math.max(a, l.row + 1), 0);
+        return { labels, rows, rowH, fs, bottom: String(s.labelPosition) === "bottom" };
     }
 
     /**
@@ -2044,7 +2103,7 @@ export class Visual implements IVisual {
             }
         } else {
             const f = x.formats[k] ?? x.format;
-            str = (d > 0 ? "+" : d < 0 ? "-" : "") + this.fmtShort(Math.abs(d), f, Math.abs(d));
+            str = (d > 0 ? "+" : d < 0 ? "-" : "") + this.fmtCompact(Math.abs(d), f);
         }
         str = str.replace("-", "−");
         const text = ref.kind === "plan" ? this.tf("UI_VsPlan", "{0} vs plan", str) : this.tf("UI_VsPY", "{0} vs PY", str);
@@ -2074,11 +2133,24 @@ export class Visual implements IVisual {
         return out.slice(0, Math.max(1, Number(s.endLabels.maxLabels)));
     }
 
+    /** Etiqueta del objetivo para la columna de etiquetas finales: nombre y último valor visible. */
+    private targetEndLabel(): { text: string; v: number; k: number } | null {
+        const m = this.model, t = m?.target, s = this.settings.targetLine;
+        if (!t || !s.show || !s.showLabel) return null;
+        for (let k = Math.min(this.visHi, t.values.length - 1); k >= this.visLo; k--) {
+            const v = t.values[k];
+            if (v !== null) return { text: t.name + "  " + this.fmtShort(v, t.formats[k] ?? t.format), v, k };
+        }
+        return null;
+    }
+
     private drawEndLabels(L: Layout, yOf: (x: Series) => d3.ScaleLinear<number, number>): void {
         const s = this.settings;
         const fs = Number(s.endLabels.fontSize);
         const gap = fs * 1.25;
-        const items = this.labelCandidates().map(c => ({ ...c, want: yOf(c.s)(c.v), y: 0 }));
+        const items: any[] = this.labelCandidates().map(c => ({ ...c, want: yOf(c.s)(c.v), y: 0 }));
+        const tl = this.targetEndLabel();
+        if (tl) items.push({ s: null, tgt: true, text: tl.text, v: tl.v, head: "", rest: "", vari: "", sign: 0, li: tl.k, want: this.y1(tl.v), y: 0 });
         items.sort((a, b) => a.want - b.want);
         // Anticolisión: de arriba abajo empujando, y si se sale por abajo, de abajo arriba.
         const top = L.top + fs / 2, bottom = L.top + L.plotH - fs / 2;
@@ -2091,6 +2163,17 @@ export class Visual implements IVisual {
         const tx = x0 + 12;
         const maxW = L.labelW - 14;
         for (const it of items) {
+            if (it.tgt) {
+                const tc = this.readable(this.targetColor(), this.ink);
+                const tg = g.append("g").attr("class", "lc-endlabel lc-target-label");
+                if (Math.abs(it.y - it.want) > 1.5) {
+                    tg.append("polyline").attr("points", `${x0},${it.want} ${x0 + 3},${it.want} ${tx - 2},${it.y}`).attr("fill", "none")
+                        .attr("stroke", tc).attr("stroke-width", 0.8).attr("opacity", 0.6);
+                }
+                tg.append("text").attr("x", tx).attr("y", it.y).attr("dy", "0.32em").style("font-size", fs + "px").style("font-weight", "600")
+                    .attr("fill", this.hc ? this.hcFg : tc).text(this.fit(it.text, fs, maxW, true)).append("title").text(it.text);
+                continue;
+            }
             const px = this.x(this.model.keys[it.li].pos);
             const color = this.hc ? this.hcFg : (s.endLabels.seriesColor ? this.readable(it.s.color, String(s.endLabels.color)) : String(s.endLabels.color));
             const lg = g.append("g").attr("class", "lc-endlabel").attr("data-id", it.s.id);
@@ -2103,18 +2186,18 @@ export class Visual implements IVisual {
             const t = lg.append("text").attr("x", tx).attr("y", it.y).attr("dy", "0.32em").style("font-size", fs + "px").attr("fill", color)
                 .style("font-weight", "600");
             if (!it.vari) {
-                t.text(this.fit(it.text, fs, maxW));
+                t.text(this.fit(it.text, fs, maxW, true));
             } else {
                 // Lo último en acortarse es el desvío: primero el nombre, luego todo.
                 const tail = it.rest + " · ";
                 let head = it.head;
-                if (this.measure(it.text, fs) > maxW) {
-                    const room = maxW - this.measure(tail + it.vari, fs);
-                    head = head && room > this.measure("…", fs) + 8 ? this.fit(head, fs, room) : "";
+                if (this.measure(it.text, fs, true) > maxW) {
+                    const room = maxW - this.measure(tail + it.vari, fs, true);
+                    head = head && room > this.measure("…", fs, true) + 8 ? this.fit(head, fs, room, true) : "";
                 }
                 const main = (head + tail).replace(/^ +/, "");
-                if (this.measure(main + it.vari, fs) > maxW + 1) {
-                    t.text(this.fit(it.text, fs, maxW));
+                if (this.measure(main + it.vari, fs, true) > maxW + 1) {
+                    t.text(this.fit(it.text, fs, maxW, true));
                 } else {
                     t.append("tspan").text(main);
                     const up = it.sign > 0, down = it.sign < 0;
