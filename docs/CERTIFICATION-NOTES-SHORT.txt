@@ -1,0 +1,46 @@
+Line Chart by TCViz 1.0.0.0 - GUID lineChartTCVizD8CCBAB58761478B9C59A5FA700EC503
+
+SOURCE CODE
+https://github.com/tinocallarisa-web/line-chart, branch "certification". Public, no credentials.
+
+SAMPLE REPORT: LineChart_sample.pbix, 6 pages
+1. Actual vs plan: date axis, Plan with gap shading (green above, red below, split where
+the lines cross), plan dashed after the last actual month, "Actual | Plan" mark.
+2. Regions and margin: Legend = Region, margin on the secondary axis, end labels.
+3. Small multiples (Pro): one panel per region.
+4. Events and annotations (Pro): vertical event lines and notes on the line.
+5. Daily zoom and trend: Ctrl + mouse wheel or +/- keys, Esc resets; trend, peaks.
+6. Hints & tips.
+
+TESTING PRO - NO KEY NEEDED
+Pro is granted by the AppSource plan through IVisualLicenseManager; no activation key
+exists. In EDIT mode without a licence, each Pro feature (collection styles, variance
+label, small multiples, events, annotations, show values as) is drawn WORKING under a
+"Pro preview" watermark that names it, with Power BI's licence notice. Intentional.
+Reading view shows the free chart (small multiples: first panel and a note). Without
+licence information (not signed in to Power BI Desktop): free chart, no watermark.
+
+WHAT TO CHECK
+- Empty visual: start screen with 3 steps; resize it.
+- Click a point: other visuals filter; Ctrl+click adds; click again clears. Bookmark,
+clear, apply: the selection comes back. Right-click: context menu.
+- Keyboard: arrows move between points and series, Enter selects, Esc clears.
+- High contrast: series differ by dash and marker shape.
+- Format mode: click a line, an end label, an axis or the legend.
+
+SETUP GUIDE AND LINKS
+The setup guide's buttons call persistProperties on a user click only, never in the
+selection callback. Start screen links (Guide, Video, Product page) open only on click
+or Enter, through host.launchUrl.
+
+ROWS: categorical mapping, window of 30,000 rows; if Power BI sends only part, a note
+in the visual says so.
+
+PRIVACY: privileges []. No network, telemetry, browser storage or innerHTML. 12 languages.
+
+Rendering events: one started/finished pair per update(); licence, hover, selection and
+zoom repaints do not call update(). ESLint 0 errors.
+
+Video: https://www.youtube.com/watch?v=R7EQ3PDNhMs
+Support: https://tinocallarisa-web.github.io/line-chart/support.html
+Privacy: https://tinocallarisa-web.github.io/line-chart/privacy.html

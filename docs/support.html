@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Documentation – Line Chart by TCViz</title>
+<style>
+  :root {
+    --bg: #FAF9F5; --bg2: #EDE9DE; --bd: #F5F3ED; --line: #DAD9D4;
+    --t1: #3D3929; --t2: #535146; --t3: #83827D;
+    --acc: #2B6CB0; --accd: #1F4E80; --acc2: #3E9C5B;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--t1); line-height: 1.65; }
+
+  /* ── Header ── */
+  header { background: var(--t1); color: #fff; padding: 28px 48px; display: flex; align-items: center; gap: 20px; }
+  header svg { flex-shrink: 0; }
+  header .title { font-size: 22px; font-weight: 700; }
+  header .sub   { font-size: 13px; color: #b5b3aa; margin-top: 2px; }
+
+  /* ── Nav ── */
+  nav { background: var(--bg2); border-bottom: 1px solid var(--line); padding: 0 48px; display: flex; gap: 0; overflow-x: auto; }
+  nav a { display: block; padding: 14px 14px; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--t2);
+          text-decoration: none; border-bottom: 3px solid transparent; transition: color .2s, border-color .2s; }
+  nav a:hover, nav a.active { color: var(--acc); border-bottom-color: var(--acc); }
+
+  /* ── Layout ── */
+  .wrap { max-width: 900px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
+  h2 { font-size: 17px; font-weight: 700; color: var(--t1); margin: 40px 0 12px; padding-bottom: 8px;
+       border-bottom: 2px solid var(--acc); display: inline-block; }
+  h3 { font-size: 14px; font-weight: 700; color: var(--t1); margin: 18px 0 6px; }
+  p  { font-size: 14px; color: var(--t2); margin-bottom: 10px; }
+  ul { font-size: 14px; color: var(--t2); padding-left: 20px; margin-bottom: 10px; }
+  li { margin-bottom: 5px; }
+  code { font-family: monospace; background: var(--bg2); padding: 1px 6px; border-radius: 4px;
+         font-size: 12px; color: var(--acc); }
+
+  /* ── Cards ── */
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 24px 28px; margin-bottom: 16px; }
+
+  /* ── Badges ── */
+  .badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px;
+           text-transform: uppercase; letter-spacing: .5px; vertical-align: middle; margin-left: 6px; }
+  .badge-pro  { background: var(--acc2); color: #fff; }
+  .badge-free { background: var(--acc);  color: #fff; }
+
+  /* ── Field wells table ── */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+  th { background: var(--bg2); color: var(--t1); font-weight: 700; padding: 10px 14px; text-align: left;
+       border-bottom: 2px solid var(--line); }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--bd); color: var(--t2); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+
+  /* ── FAQ ── */
+  details { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; background: #fff; }
+  summary { padding: 14px 18px; font-size: 14px; font-weight: 600; cursor: pointer; list-style: none;
+            display: flex; align-items: center; justify-content: space-between; color: var(--t1); }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: '+'; font-size: 18px; font-weight: 300; color: var(--acc); transition: transform .2s; }
+  details[open] summary::after { content: '−'; }
+  details[open] summary { border-bottom: 1px solid var(--line); }
+  .faq-body { padding: 14px 18px; font-size: 14px; color: var(--t2); }
+  .faq-body p { margin-bottom: 6px; }
+  .faq-body ul { margin-top: 6px; }
+
+  /* ── Contact box ── */
+  .contact-box { background: var(--acc); color: #fff; border-radius: 10px; padding: 24px 28px;
+                  display: flex; align-items: center; gap: 20px; }
+  .contact-box .icon { font-size: 36px; flex-shrink: 0; }
+  .contact-box h3 { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #fff; }
+  .contact-box p  { font-size: 13px; color: rgba(255,255,255,.85); margin: 0; }
+  .contact-box a  { color: #fff; font-weight: 700; text-decoration: underline; }
+
+  /* ── Video embed ── */
+  .video-wrap { position: relative; padding-bottom: 56.25%; height: 0; border-radius: 10px; overflow: hidden;
+                border: 1px solid var(--line); margin-bottom: 20px; }
+  .video-wrap iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+
+  /* ── CTA strip ── */
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+  .btn { display: inline-block; padding: 10px 22px; border-radius: 6px; font-size: 13px; font-weight: 700;
+          text-decoration: none; transition: background .2s; }
+  .btn-primary { background: var(--acc); color: #fff; }
+  .btn-primary:hover { background: var(--accd); }
+  .btn-outline { background: transparent; color: var(--acc); border: 2px solid var(--acc); }
+  .btn-outline:hover { background: var(--acc); color: #fff; }
+
+  /* ── Search ── */
+  .searchbar { background: var(--bg2); border-bottom: 1px solid var(--line); padding: 14px 48px 16px; }
+  .searchbox { position: relative; max-width: 900px; margin: 0 auto; display: flex; align-items: center;
+               gap: 10px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; }
+  .searchbox:focus-within { border-color: var(--acc); box-shadow: 0 0 0 3px rgba(43,108,176,.16); }
+  .searchbox svg { color: var(--t3); flex-shrink: 0; }
+  .searchbox input { flex: 1; border: none; outline: none; background: transparent; font: inherit;
+                     font-size: 14px; color: var(--t1); padding: 11px 0; }
+  .searchbox input::placeholder { color: var(--t3); }
+  .searchbox button { border: none; background: transparent; color: var(--t3); font-size: 20px;
+                      line-height: 1; cursor: pointer; padding: 0 2px; }
+  .searchbox button:hover { color: var(--acc); }
+  .search-status { max-width: 900px; margin: 8px auto 0; font-size: 12px; color: var(--t3); min-height: 16px; }
+  mark { background: #FCE8A8; color: var(--t1); border-radius: 2px; padding: 0 2px; }
+  .is-hidden { display: none !important; }
+
+  /* ── Version pill ── */
+  .verpill { display: block; width: fit-content; font-size: 11px; font-weight: 700; letter-spacing: .4px;
+             background: var(--bg2); color: var(--t2); border: 1px solid var(--line);
+             padding: 3px 10px; border-radius: 20px; margin-bottom: 14px; }
+  .verpill a { color: var(--acc); text-decoration: none; }
+  .lead { font-size: 14px; line-height: 1.6; color: var(--t2); margin: 0 0 22px; }
+  .lead a { color: var(--acc); }
+
+  /* ── Footer ── */
+  footer { background: var(--t1); color: var(--t3); text-align: center; padding: 24px 48px; font-size: 12px; }
+  footer a { color: #b5b3aa; text-decoration: none; margin: 0 8px; }
+  footer a:hover { color: #fff; }
+.prose h2{display:block}
+</style>
+</head>
+<body>
+<header>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 828 362" width="90" height="40">
+    <defs><linearGradient id="g" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#1F4E80"/>
+      <stop offset=".55" stop-color="#2B6CB0"/>
+      <stop offset="1" stop-color="#3E9C5B"/>
+    </linearGradient></defs>
+    <g transform="translate(40,46)">
+      <rect x="22" y="20" width="150" height="150" rx="30" fill="none" stroke="url(#g)" stroke-width="11"/>
+      <g fill="url(#g)">
+        <rect x="42" y="110" width="20" height="58" rx="5"/>
+        <rect x="70" y="86" width="20" height="82" rx="5"/>
+        <rect x="98" y="62" width="20" height="106" rx="5"/>
+        <rect x="126" y="38" width="20" height="130" rx="5"/>
+      </g>
+    </g>
+    <text x="258" y="246" font-family="Poppins,sans-serif" font-weight="700" font-size="196" letter-spacing="-4">
+      <tspan fill="url(#g)">tc</tspan><tspan fill="#fff">viz</tspan>
+    </text>
+    <text x="264" y="306" font-family="Poppins,sans-serif" font-weight="500" font-size="31" letter-spacing="6.5" fill="#83827D">VISUALS TO POWER BI</text>
+  </svg>
+  <div>
+    <div class="title">Line Chart by TCViz</div>
+    <div class="sub">Documentation</div>
+  </div>
+</header>
+<nav>
+  <a href="#quickstart" class="active">Quick Start</a>
+  <a href="#read">How to read it</a>
+  <a href="#usecases">Use cases</a>
+  <a href="#fields">Field Wells</a>
+  <a href="#freepro">Free and Pro</a>
+  <a href="#events">Events</a>
+  <a href="#format">Format Pane</a>
+  <a href="#interaction">Selection and zoom</a>
+  <a href="#accessibility">Accessibility</a>
+  <a href="#troubleshooting">Troubleshooting</a>
+  <a href="#faq">FAQ</a>
+  <a href="changelog.html">Changelog</a>
+  <a href="#contact">Contact</a>
+</nav>
+<div class="searchbar">
+  <div class="searchbox">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="docsearch" type="search" placeholder="Search the documentation — try &quot;plan&quot;, &quot;gap&quot;, &quot;events&quot;, &quot;zoom&quot;…"
+           autocomplete="off" aria-label="Search the documentation">
+    <button id="searchclear" type="button" aria-label="Clear search" hidden>&times;</button>
+  </div>
+  <div id="searchstatus" class="search-status" role="status" aria-live="polite"></div>
+</div>
+<div class="wrap">
+
+<div class="verpill">Visual v1.0.0.0 &nbsp;·&nbsp; docs updated 10 November 2026 &nbsp;·&nbsp; <a href="changelog.html">what's new</a></div>
+
+<p class="lead">A line chart for business time series that answers the question the meeting is about: are we on plan? Actual against
+plan and prior year with the gap shaded green or red, the plan carried on past the last actual month, the last value at the end of every
+line, and an empty month drawn as a gap, never as a zero. <strong>Pro</strong> adds the context around the numbers: events and annotations
+on the timeline, the variance in the end label, small multiples, “Show values as” and six collection styles.</p>
+<div class="video-wrap"><iframe src="https://www.youtube.com/embed/R7EQ3PDNhMs" title="Line Chart by TCViz video" allowfullscreen></iframe></div>
+<p style="font-size:13px;color:var(--t3);margin:8px 0 0">Video on YouTube: <a href="https://www.youtube.com/watch?v=R7EQ3PDNhMs" target="_blank">https://www.youtube.com/watch?v=R7EQ3PDNhMs</a></p>
+<h2 id="quickstart">Quick Start</h2>
+<div class="card">
+<ol style="padding-left:20px;font-size:14px;color:var(--t2)">
+<li>Add <strong>Line Chart by TCViz</strong> to the page. With no fields it shows a start screen with these steps.</li>
+<li>Drag a date to <strong>Axis</strong> — the date column itself, for a real time axis.</li>
+<li>Drag a measure to <strong>Values</strong> — Sales. Add a <strong>Legend</strong> (Region) for one line per value.</li>
+<li>Drag your plan measure to <strong>Plan</strong>, and turn on <em>Plan, prior year and forecast → Gap shading</em>.</li>
+<li>The setup guide in the corner lists the optional fields and lets you try each Pro feature on your data.</li>
+</ol>
+</div>
+
+<h2 id="read">How to read it</h2>
+<div class="card">
+<figure style="margin:0 0 14px">
+<svg viewBox="0 0 640 230" role="img" aria-label="Annotated line chart: actual, plan, gap shading, Actual | Plan mark, event and end label" style="width:100%;max-width:640px;display:block;margin:0 auto">
+  <g font-family="Segoe UI, sans-serif" font-size="12" fill="#535146">
+    <path d="M30 200 H440" stroke="#D6D4D0"/>
+    <path d="M30 120 L80 108 L130 100 L155.7 109.3 L130 113.5 L80 121.75 L30 130 Z" fill="#3E9C5B" fill-opacity="0.22"/>
+    <path d="M155.7 109.3 L180 118 L230 124 L280 96 L280 88.75 L230 97 L180 105.25 Z" fill="#C62828" fill-opacity="0.18"/>
+    <path d="M30 130 L280 88.75" fill="none" stroke="#83827D" stroke-width="1.5" stroke-dasharray="6 3"/>
+    <path d="M280 88.75 L430 64" fill="none" stroke="#83827D" stroke-width="1.5" stroke-dasharray="12 4"/>
+    <path d="M30 120 L80 108 L130 100 L180 118 L230 124 L280 96" fill="none" stroke="#2B6CB0" stroke-width="2.5"/>
+    <path d="M280 30 V200" stroke="#83827D" stroke-dasharray="1 3"/>
+    <text x="276" y="26" text-anchor="end" font-size="10">Actual</text><text x="284" y="26" font-size="10">Plan</text>
+    <path d="M180 40 V200" stroke="#3D3929" stroke-dasharray="4 3"/><text x="184" y="52" font-size="10">Price change</text>
+    <text x="288" y="104" font-weight="700" fill="#2B6CB0">1,284</text>
+    <text x="470" y="40" font-weight="700" fill="#2B6CB0">Actual</text><text x="470" y="56">ends with its last value</text>
+    <text x="470" y="86" font-weight="700" fill="#83827D">Plan (dashed)</text><text x="470" y="102">carries on after “Actual | Plan”</text>
+    <text x="470" y="132" font-weight="700" fill="#3E9C5B">Gap shading</text><text x="470" y="148">green above plan, red below</text>
+    <text x="470" y="178" font-weight="700" fill="#3D3929">Event (Pro)</text><text x="470" y="194">a vertical line with its text</text>
+  </g>
+</svg>
+</figure>
+<p>Read the actual line against the plan: the shaded area is the gap, split where the lines cross. Past the “Actual | Plan” mark only the
+plan (or forecast) continues. A break in a line is a period without data, not a zero.</p>
+</div>
+
+<h2 id="usecases">Use cases</h2>
+<div class="card"><h3>Monthly sales against plan</h3><p>Axis = Month, Values = Sales, Plan = Sales plan. Turn on <strong>Gap shading</strong>: months above plan in green, below in red. The plan carries on after the last actual month, so the rest of the year is on the same chart.</p></div><div class="card"><h3>This year against last year</h3><p>Prior year = a time-intelligence measure such as <code>CALCULATE([Sales], SAMEPERIODLASTYEAR('Date'[Date]))</code>. With Pro, the end label can show the variance: “+4.2% vs PY”.</p></div><div class="card"><h3>Regions with a margin on a second axis</h3><p>Values = Sales, Legend = Region, Secondary values = Margin %. Each region has its end label with its last value, and the margin reads on the right-hand axis.</p></div><div class="card"><h3>Daily data with a trend</h3><p>A daily date on Axis, a Trend line (moving average of 7 periods) and Peaks &amp; lows. Ctrl + wheel zooms into a month; the Y axis fits the zoomed range.</p></div><div class="card"><h3>Campaigns, price changes and incidents (Pro)</h3><p>An Events table with Date and Event, related to the calendar: each event is a vertical line with its text, so the reason for a jump is on the chart.</p></div><div class="card"><h3>Comparing growth, not size (Pro)</h3><p>Show values as → Index: every line starts at 100, so a small region that grew 30% is visibly ahead of a large one that grew 5%.</p></div>
+
+<h2 id="fields">Field Wells</h2>
+<table><thead><tr><th>Field</th><th>Kind</th><th>Required / limit</th><th>What it does</th></tr></thead><tbody><tr><td><strong>Axis</strong></td><td>Grouping</td><td>Yes, one field</td><td>A date gives a real time axis: points sit at their true distance and a missing period is a gap. A date hierarchy, text or numbers give a category axis with evenly spaced points. A hierarchy gives drilldown.</td></tr><tr><td><strong>Legend</strong></td><td>Grouping</td><td>No, one field</td><td>One line per value (region, brand, team) for every measure. Colours are set per legend value.</td></tr><tr><td><strong>Values</strong></td><td>Measure</td><td>Yes, up to 6</td><td>One line per measure, on the left axis.</td></tr><tr><td><strong>Secondary values</strong></td><td>Measure</td><td>No, up to 3</td><td>Measures in other units (margin %, units) on a right-hand axis.</td></tr><tr><td><strong>Plan</strong></td><td>Measure</td><td>No, one field</td><td>Drawn as a thin dashed line. With gap shading on, the area between actual and plan is green above and red below. After the last actual period it carries on, marked “Actual | Plan”.</td></tr><tr><td><strong>Prior year</strong></td><td>Measure</td><td>No, one field</td><td>Same as Plan, with its own dash. Gap shading uses it when there is no Plan.</td></tr><tr><td><strong>Forecast</strong></td><td>Measure</td><td>No, one field</td><td>Your own forecast measure, drawn dashed; it also carries on after the last actual period.</td></tr><tr><td><strong>Target line</strong></td><td>Measure</td><td>No, one field</td><td>A horizontal line when the target is the same for every period, or a stepped line when it changes by period.</td></tr><tr><td><strong>Events</strong></td><td>Measure</td><td>No — Pro, one field</td><td>A vertical line with its text wherever the field is not blank. A text column set to <strong>First</strong>, or a text measure.</td></tr><tr><td><strong>Annotations</strong></td><td>Measure</td><td>No — Pro, one field</td><td>A note on the line wherever the field is not blank (first measure). A text column set to First, or a text measure.</td></tr><tr><td><strong>Small multiples</strong></td><td>Grouping</td><td>No — Pro, one field</td><td>One chart per value (region, plant), with a shared or separate Y axis.</td></tr><tr><td><strong>Tooltips</strong></td><td>Measure</td><td>No</td><td>Extra measures in the tooltip. Report page tooltips are supported.</td></tr></tbody></table>
+<p>Power BI sends up to 30,000 combinations of axis, small multiples panel and legend value. When there are more, a note in the visual
+says the chart is incomplete. The limits are the same in the free version and in Pro.</p>
+
+<h2 id="freepro">Free and Pro</h2>
+<table><thead><tr><th>Capability</th><th>Free</th><th>Pro</th></tr></thead><tbody><tr><td>Real date axis: an empty period is a gap, never a zero (Break, Connect or Zero, your choice)</td><td>✓</td><td>✓</td></tr><tr><td>Several measures, a legend and a secondary axis at the same time</td><td>✓</td><td>✓</td></tr><tr><td>End labels with the last non-empty value, kept apart so they do not overlap</td><td>✓</td><td>✓</td></tr><tr><td>Plan, prior year and forecast as their own fields</td><td>✓</td><td>✓</td></tr><tr><td>Gap shading between actual and plan (or prior year), green above and red below, split exactly where the lines cross</td><td>✓</td><td>✓</td></tr><tr><td>Split actual and plan: the plan carries on dashed after the last actual period, marked “Actual | Plan”</td><td>✓</td><td>✓</td></tr><tr><td>Target line from a measure, flat or stepped</td><td>✓</td><td>✓</td></tr><tr><td>Trend line (linear or moving average) and peaks &amp; lows</td><td>✓</td><td>✓</td></tr><tr><td>Smooth lines that never overshoot the data (monotone curve)</td><td>✓</td><td>✓</td></tr><tr><td>Zoom with Ctrl + mouse wheel or the keyboard, optional zoom slider, Y axis that fits the zoomed range</td><td>✓</td><td>✓</td></tr><tr><td>Sort categories, source note under the chart</td><td>✓</td><td>✓</td></tr><tr><td>Colour, line style, width and markers per series; conditional formatting (fx) on colours</td><td>✓</td><td>✓</td></tr><tr><td>Report theme and Classic templates; setup guide and start screen</td><td>✓</td><td>✓</td></tr><tr><td>Cross-filtering, multi-select, highlight, bookmarks, drilldown, context menu, report page tooltips, keyboard, high contrast</td><td>✓</td><td>✓</td></tr><tr><td>Number format of the measure, dynamic format strings included; format on the canvas; 12 languages</td><td>✓</td><td>✓</td></tr><tr><td>Variance in the end label (“+4.2% vs plan” or the absolute difference)</td><td>—</td><td>✓</td></tr><tr><td>Six collection styles: Boardroom, Ledger, Editorial, Signal, Aurora, Terrace</td><td>—</td><td>✓</td></tr><tr><td>Small multiples</td><td>—</td><td>✓</td></tr><tr><td>Events: vertical lines with their text, from a column of your own Events table or a measure</td><td>—</td><td>✓</td></tr><tr><td>Annotations pinned to a point</td><td>—</td><td>✓</td></tr><tr><td>Show values as: index (first = 100), % change from the first period, running total</td><td>—</td><td>✓</td></tr></tbody></table>
+<p>Turn on a Pro capability without a licence while editing and it is drawn working on your own data under a “Pro preview” watermark that
+names it. Reading view shows the free chart. Pro is sold per user on Microsoft AppSource.</p>
+
+<h2 id="events">Events in one minute (Pro)</h2>
+<div class="card">
+<ol style="padding-left:20px;font-size:14px;color:var(--t2)">
+<li>Make a table <strong>Events</strong> with two columns: <strong>Date</strong> and <strong>Event</strong>.</li>
+<li>Relate Events[Date] to your calendar date (many-to-one, single direction).</li>
+<li>Drag Events[Event] to the <strong>Events</strong> field and set it to <strong>First</strong>.</li>
+</ol>
+<p>Two events in the same period? Use a measure instead:</p>
+<p><code>Event text = CONCATENATEX ( VALUES ( Events[Event] ), Events[Event], " · " )</code></p>
+<p>Annotations work the same way: any text column set to First, or a text measure, in <strong>Annotations</strong> pins a note to the first measure's line.</p>
+</div>
+
+<h2 id="format">Format Pane</h2>
+<table><thead><tr><th>Card</th><th>Settings</th></tr></thead><tbody><tr><td><strong>Style template</strong></td><td>Report theme (default: the colours of your report theme, like a native visual), Classic, and the six collection styles Boardroom, Ledger, Editorial, Signal, Aurora and Terrace (Pro). A template only fills what you have not set yourself. Setup guide: turn it back on to see the guide again.</td></tr><tr><td><strong>Lines</strong></td><td>Line width; markers (auto, on, off) and marker size; missing values — Break the line, Connect over the gap, or Zero; smooth lines; Show values as (Pro): value, index, % change, running total. <strong>Colors</strong>: colour, line style (solid, dashed, dotted), width and markers per series. Without a Legend field the colour accepts conditional formatting (fx) rules, evaluated per point on the markers.</td></tr><tr><td><strong>End labels</strong></td><td>Show; content — name and value, value, or name; maximum labels; text size; use the series colour or a fixed colour; variance vs plan or prior year (Pro): % or absolute.</td></tr><tr><td><strong>Events (Pro)</strong></td><td>Show; line colour and style; show labels; label position top or bottom; text size. The full text is always in the tooltip.</td></tr><tr><td><strong>Annotations (Pro)</strong></td><td>Show; text size and colour; background colour and opacity.</td></tr><tr><td><strong>Plan, prior year and forecast</strong></td><td>Show; line colour — grey or the series colour; width; show in legend; gap shading with the colours above and below the reference and its opacity; split actual and plan.</td></tr><tr><td><strong>Target line</strong></td><td>Show; colour, with conditional formatting (fx) rules per period; width; line style; label and text size.</td></tr><tr><td><strong>Trend line</strong></td><td>Show; type — linear or moving average, with the number of periods; apply to all series or the first; width; opacity. The linear trend runs from the first to the last point: it is not a forecast.</td></tr><tr><td><strong>Peaks &amp; lows</strong></td><td>Show; mark the highest, the lowest or both; first series or all; text size. Calculated on the visible (zoomed) range.</td></tr><tr><td><strong>Axes</strong></td><td>X axis: show, text size and colour, title, sort categories (data order, value descending or ascending, alphabetical — category axes only). Y axis: show, text size and colour, title, start at zero, gridlines and their colour. Secondary Y axis: show, text size, title, start at zero.</td></tr><tr><td><strong>Legend</strong></td><td>Show; position top or bottom; text size and colour; title.</td></tr><tr><td><strong>Small multiples (Pro)</strong></td><td>Columns (0 = automatic); space between panels; title size, colour, bold and alignment; panel background and border; shared Y axis.</td></tr><tr><td><strong>Source note</strong></td><td>Show; text; size; colour; alignment. A line under the chart for the data source.</td></tr><tr><td><strong>Interactions</strong></td><td>Zoom; Y auto-fit when zoomed; zoom slider.</td></tr></tbody></table>
+<p>Format on the canvas: in format mode, click the lines, the plan and gap shading, the end labels, the axes, the legend, the target and trend lines, events, annotations or the source note to format them where they are.</p>
+
+<h2 id="interaction">Selection, zoom and interaction</h2>
+<div class="card">
+<ul>
+<li>Click a point to filter the rest of the page; with a Legend field, click a legend item to select the whole series. Ctrl/Cmd + click adds; click again or click the background to clear.</li>
+<li>Highlight: when another visual filters this one, the highlighted values are drawn over a faded line.</li>
+<li>Tooltip with a crosshair; report page tooltips are supported. At a period with an event, the tooltip shows its full text.</li>
+<li>Zoom: Ctrl/Cmd + mouse wheel, or + and − with the chart focused; drag the optional zoom slider under the axis. Esc or <em>Reset zoom</em> goes back. The Y axis fits the zoomed range unless you turn that off.</li>
+<li>Bookmarks restore the selection. Right-click opens the Power BI context menu. A hierarchy in Axis gives drilldown.</li>
+<li>When the report author turns interactions off, clicks do not filter and zoom is off.</li>
+</ul>
+</div>
+
+<h2 id="accessibility">Accessibility</h2>
+<div class="card">
+<ul>
+<li>Keyboard: Tab into the visual; left and right arrows move along the axis, up and down between series; Home/End and PageUp/PageDown jump; Enter or Space selects; Esc clears (or resets the zoom); the context-menu key or Shift + F10 opens the menu. With small multiples, Shift + left/right moves between panels.</li>
+<li>Each point is announced to screen readers with its series, date and value; the chart describes how many series and points it has.</li>
+<li>High contrast: the visual uses the colours of the Windows contrast theme and tells series apart by line pattern and marker shape.</li>
+<li>The layout adapts to the size of the visual: in small sizes labels, legend and axes give way, down to a sparkline.</li>
+</ul>
+</div>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+<details><summary>My line drops to zero in an empty month</summary><div class="faq-body"><p>The line is drawn from your data: a zero is a real zero returned by the measure. Measures that wrap the result in <code>+ 0</code> or <code>COALESCE(…, 0)</code> turn a blank into zero; return BLANK() instead and the month is a gap. If you do want the line to go to zero, choose <strong>Lines → Missing values → Zero</strong>; <strong>Connect</strong> draws straight over the gap.</p></div></details><details><summary>The axis shows categories, not a time axis</summary><div class="faq-body"><p>The time axis needs a single date column (Date data type) on Axis. A date hierarchy (Year, Quarter, Month) gives evenly spaced categories, like any category axis. In the field well, choose the date field itself instead of Date Hierarchy.</p></div></details><details><summary>“Events expects text: set the field to First”</summary><div class="faq-body"><p>A text column in Events or Annotations is summarised as Count by default, so the visual receives numbers. In the field well, open the field menu and choose <strong>First</strong>. Or use a text measure.</p></div></details><details><summary>Two events in the same period show only one</summary><div class="faq-body"><p>With <strong>First</strong>, Power BI sends one text per period. Use a measure that joins them: <code>Event text = CONCATENATEX ( VALUES ( Events[Event] ), Events[Event], " · " )</code>.</p></div></details><details><summary>“Power BI sent only part of the data”</summary><div class="faq-body"><p>Power BI sends up to 30,000 combinations of axis, small multiples panel and legend value. Above that, the visual draws what arrived and says so. Filter the page, use a coarser axis (week instead of day) or fewer legend values.</p></div></details><details><summary>“N values without a date on the axis”</summary><div class="faq-body"><p>Some rows have a blank date. They cannot be placed on a time axis, so they are left out and counted in the note. Check the relationship between your fact table and the calendar.</p></div></details><details><summary>Gap shading or the variance label does not appear</summary><div class="faq-body"><p>Both need a <strong>Plan</strong> or a <strong>Prior year</strong> field: without a reference there is nothing to compare against. Gap shading is in <em>Plan, prior year and forecast → Gap shading</em>.</p></div></details><details><summary>Zoom does nothing</summary><div class="faq-body"><p>Zoom uses Ctrl + mouse wheel (Cmd on a Mac) or the + and − keys with the chart focused. It is off in format mode, when <em>Interactions → Zoom</em> is off, or when the report author turned interactions off. Esc or the <em>Reset zoom</em> button goes back to the full range.</p></div></details><details><summary>I see a “Pro preview” watermark</summary><div class="faq-body"><p>A Pro feature is turned on and you are editing without a licence. Turn it off to remove the watermark, or get a licence. Readers of the report without a licence see the free chart, with no watermark.</p></div></details>
+
+<h2 id="faq">FAQ</h2>
+<details><summary>Why does an empty month break the line?</summary><div class="faq-body"><p>Because a missing value is not a zero. A native line chart that drops to zero in a month without data tells the meeting that sales collapsed. By default the line stops and starts again; you can connect over the gap or draw zero in <strong>Lines → Missing values</strong>.</p></div></details><details><summary>How does gap shading choose its colour?</summary><div class="faq-body"><p>The area between the actual line and the reference (Plan, or Prior year when there is no plan) is green where actual is above and red where it is below, split exactly at the point where the lines cross. For costs, where lower is better, swap the two colours in <em>Plan, prior year and forecast</em>.</p></div></details><details><summary>What does “Split actual and plan” do?</summary><div class="faq-body"><p>When the plan or forecast has values after the last actual period, that part is drawn with a longer dash and a thin vertical line marks <strong>Actual | Plan</strong>. Turn it off in <em>Plan, prior year and forecast</em>.</p></div></details><details><summary>How do I add events?</summary><div class="faq-body"><ol style="padding-left:20px"><li>Make a table <strong>Events</strong> with two columns: Date and Event.</li><li>Relate Events[Date] to your calendar date.</li><li>Drag Events[Event] to the <strong>Events</strong> field and set it to <strong>First</strong>.</li></ol><p>Two events in the same period? Use a measure instead: <code>Event text = CONCATENATEX ( VALUES ( Events[Event] ), Events[Event], " · " )</code>. Events are part of Pro.</p></div></details><details><summary>Is the trend line a forecast?</summary><div class="faq-body"><p>No. The linear trend is a least-squares line from the first to the last point of the series, and it is not extended. The moving average looks back N periods inside each stretch of the line, so it does not cross a gap. For a forecast, use your own measure in <strong>Forecast</strong>.</p></div></details><details><summary>How many fields and rows can it use?</summary><div class="faq-body"><p>Axis, Legend and Small multiples take one field each; Values up to 6 measures; Secondary values up to 3; Plan, Prior year, Forecast, Target line, Events and Annotations one each. Power BI sends up to 30,000 combinations of axis, panel and legend value; when more exist, a note in the visual says the chart is incomplete. The limits are the same in the free version and in Pro.</p></div></details><details><summary>Does it use my number formats?</summary><div class="faq-body"><p>Yes: the number format of each measure from the model, <strong>dynamic format strings</strong> included, in the report's language. Show values as (Pro) uses its own format for index and %.</p></div></details><details><summary>Does it follow my report theme?</summary><div class="faq-body"><p>Yes. <strong>Report theme</strong> is the default template: series colours and text come from your theme, like a native visual. Colours you set yourself always win.</p></div></details><details><summary>Do bookmarks keep my selection?</summary><div class="faq-body"><p>Bookmarks keep the points you select and the filters of the page. Like every Power BI visual, they do not keep formatting.</p></div></details><details><summary>What is the “Pro preview” watermark?</summary><div class="faq-body"><p>While you edit a report without a licence, Pro features you turn on are drawn working on your own data under a watermark that names them, and Power BI shows its licence notice. Reading view shows the free chart. With small multiples, the preview draws the first 4 panels and reading view without a licence shows the first panel. Where Power BI provides no licence information (for example when you are not signed in to Power BI Desktop), the free chart is shown.</p></div></details><details><summary>How do I get Pro?</summary><div class="faq-body"><p>On the visual's Microsoft AppSource page, choose <strong>Buy now</strong> (not Install free). Licences are per user and managed by Microsoft; every person who should see the Pro features needs one. Restart Power BI Desktop after the licence is assigned. See <a href="https://tcviz.com/licensing.html">tcviz.com/licensing</a>.</p></div></details><details><summary>Is my data sent anywhere?</summary><div class="faq-body"><p>No. The visual makes no network requests and stores nothing outside your report. The links on the start screen open only when you click them, through Power BI.</p></div></details>
+
+<h2 id="contact">Contact</h2>
+<div class="contact-box"><div class="icon">✉</div><div>
+<h3>Questions, bugs, ideas</h3>
+<p>Ask in <a href="https://github.com/tinocallarisa-web/line-chart/discussions" target="_blank">GitHub Discussions</a>, report a bug in <a href="https://github.com/tinocallarisa-web/line-chart/issues" target="_blank">GitHub Issues</a>,
+or write to <a href="mailto:support@tcviz.com">support@tcviz.com</a>. Product page: <a href="https://tcviz.com/product/line-chart/" target="_blank">tcviz.com/product/line-chart</a>.</p>
+</div></div>
+
+</div>
+<footer>
+  <div style="margin-bottom:10px;">
+    <a href="https://tinocallarisa-web.github.io/line-chart/support.html">Documentation</a>
+    <a href="https://tinocallarisa-web.github.io/line-chart/privacy.html">Privacy Policy</a>
+    <a href="https://tinocallarisa-web.github.io/line-chart/terms.html">Terms of Use</a>
+    <a href="https://tinocallarisa-web.github.io/line-chart/changelog.html">Changelog</a>
+    <a href="https://github.com/tinocallarisa-web/line-chart/discussions" target="_blank">Discussions</a>
+    <a href="https://github.com/tinocallarisa-web/line-chart/issues" target="_blank">Issues</a>
+    <a href="https://tcviz.com/product/line-chart/" target="_blank">tcviz.com</a>
+  </div>
+  <p>© 2026 TCViz · Line Chart by TCViz · <a href="mailto:support@tcviz.com">support@tcviz.com</a></p>
+</footer>
+<script>
+(function () {
+  'use strict';
+
+  // ── Nav highlight (in-page anchors only) ────────────────────────────────────
+  document.querySelectorAll('nav a[href^="#"]').forEach(function (a) {
+    a.addEventListener('click', function () {
+      document.querySelectorAll('nav a').forEach(function (x) { x.classList.remove('active'); });
+      a.classList.add('active');
+    });
+  });
+
+  // ── Documentation search ────────────────────────────────────────────────────
+  var input  = document.getElementById('docsearch');
+  var clear  = document.getElementById('searchclear');
+  var status = document.getElementById('searchstatus');
+  var wrap   = document.querySelector('.wrap');
+  if (!input || !wrap) { return; }
+
+  var HIDE = 'is-hidden';
+
+  // Atomic searchable units: one FAQ entry, one table row, one card.
+  var units = [];
+  function add(el) {
+    if (units.some(function (u) { return u.el === el; })) { return; }
+    units.push({ el: el, html: el.innerHTML, text: (el.textContent || '').toLowerCase() });
+  }
+  wrap.querySelectorAll('details').forEach(add);
+  wrap.querySelectorAll('table tr').forEach(function (tr) {
+    if (tr.querySelector('th')) { return; }   // header rows follow their table
+    add(tr);
+  });
+  wrap.querySelectorAll('.card, .contact-box').forEach(add);
+
+  // Sections: an <h2> plus every sibling up to the next <h2>.
+  var sections = [];
+  var current = null;
+  Array.prototype.forEach.call(wrap.children, function (el) {
+    if (el.tagName === 'H2') {
+      current = { head: el, body: [] };
+      sections.push(current);
+    } else if (current) {
+      current.body.push(el);
+    }
+  });
+  // Each body element remembers which units live inside it.
+  sections.forEach(function (sec) {
+    sec.body.forEach(function (b) {
+      b._units = units.filter(function (u) { return b === u.el || b.contains(u.el); });
+      if (!b._units.length) { b._html = b.innerHTML; }
+    });
+  });
+
+  function escapeRe(t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  function escapeHtml(t) {
+    return t.replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; });
+  }
+
+  function highlight(el, terms) {
+    var re = new RegExp('(' + terms.map(escapeRe).join('|') + ')', 'gi');
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    var nodes = [], n;
+    while ((n = walker.nextNode())) { nodes.push(n); }
+    nodes.forEach(function (node) {
+      var txt = node.nodeValue;
+      re.lastIndex = 0;
+      if (!re.test(txt)) { return; }
+      re.lastIndex = 0;
+      var span = document.createElement('span');
+      span.innerHTML = escapeHtml(txt).replace(re, '<mark>$1</mark>');
+      node.parentNode.replaceChild(span, node);
+    });
+  }
+
+  function showAll() {
+    units.forEach(function (u) { u.el.classList.remove(HIDE); u.el.innerHTML = u.html; });
+    sections.forEach(function (sec) {
+      sec.head.classList.remove(HIDE);
+      sec.body.forEach(function (b) {
+        b.classList.remove(HIDE);
+        if (b._html !== undefined) { b.innerHTML = b._html; }
+      });
+    });
+    status.textContent = '';
+    clear.hidden = true;
+  }
+
+  function run(q) {
+    q = (q || '').trim();
+    if (q.length < 2) { showAll(); return; }
+    clear.hidden = false;
+
+    var terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    var hits = 0;
+
+    units.forEach(function (u) {
+      u.el.innerHTML = u.html;
+      var match = terms.every(function (t) { return u.text.indexOf(t) !== -1; });
+      u.el.classList.toggle(HIDE, !match);
+      if (match) {
+        hits++;
+        highlight(u.el, terms);
+        if (u.el.tagName === 'DETAILS') { u.el.open = true; }
+      }
+    });
+
+    sections.forEach(function (sec) {
+      var anyVisible = false;
+      sec.body.forEach(function (b) {
+        var visible;
+        if (b._units.length) {
+          visible = b._units.some(function (u) { return !u.el.classList.contains(HIDE); });
+        } else {
+          b.innerHTML = b._html;
+          var txt = (b.textContent || '').toLowerCase();
+          visible = terms.every(function (t) { return txt.indexOf(t) !== -1; });
+          if (visible) { highlight(b, terms); }
+        }
+        b.classList.toggle(HIDE, !visible);
+        if (visible) { anyVisible = true; }
+      });
+      sec.head.classList.toggle(HIDE, !anyVisible);
+    });
+
+    status.textContent = hits
+      ? hits + ' result' + (hits === 1 ? '' : 's') + ' for “' + q + '”'
+      : 'No results for “' + q + '”. Try a Format pane setting name, or email support@tcviz.com.';
+  }
+
+  var timer;
+  input.addEventListener('input', function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () { run(input.value); }, 120);
+  });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { input.value = ''; showAll(); }
+  });
+  clear.addEventListener('click', function () { input.value = ''; showAll(); input.focus(); });
+
+  // Deep link: support.html?q=license
+  var qp = new URLSearchParams(location.search).get('q');
+  if (qp) { input.value = qp; run(qp); }
+})();
+</script>
+</body>
+</html>
