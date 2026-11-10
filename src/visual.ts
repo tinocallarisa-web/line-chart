@@ -67,7 +67,7 @@ function matchesPlan(sp: unknown, planId: string): boolean {
 }
 
 // Enlaces de la pantalla de inicio: solo con un clic, por host.launchUrl.
-const URL_GUIDE = "https://tinocallarisa-web.github.io/LineChart/support.html";
+const URL_GUIDE = "https://tinocallarisa-web.github.io/line-chart/support.html";
 const URL_PRODUCT = "https://tcviz.com/product/line-chart/?ref=visual-line-chart";
 
 /** Colores "Classic" de Power BI, por orden de serie. */
