@@ -69,6 +69,7 @@ function matchesPlan(sp: unknown, planId: string): boolean {
 // Enlaces de la pantalla de inicio: solo con un clic, por host.launchUrl.
 const URL_GUIDE = "https://tinocallarisa-web.github.io/line-chart/support.html";
 const URL_PRODUCT = "https://tcviz.com/product/line-chart/?ref=visual-line-chart";
+const URL_VIDEO = "https://www.youtube.com/watch?v=R7EQ3PDNhMs";
 
 /** Colores "Classic" de Power BI, por orden de serie. */
 const CLASSIC = ["#118DFF", "#12239E", "#E66C37", "#6B007B", "#E044A7", "#744EC2", "#D9B300", "#D64550", "#197278", "#1AAB40"];
@@ -2785,6 +2786,7 @@ export class Visual implements IVisual {
         };
         const links: [string, string, string][] = [
             [this.t("Landing_Guide", "Guide"), this.t("Landing_GuideSub", "support page"), URL_GUIDE],
+            [this.t("Landing_Video", "Video"), "YouTube", URL_VIDEO],
             [this.t("Landing_Product", "Product page"), "tcviz.com", URL_PRODUCT],
         ];
         if (size === "s") {
