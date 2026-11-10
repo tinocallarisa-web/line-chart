@@ -5,6 +5,7 @@
  * Empaqueta una build de PRUEBA y restaura los fuentes al salir, pase lo que pase:
  *   node build-test.js          -> _test     (Pro forzado cuando exista licencia)
  *   node build-test.js --free   -> _testfree (licencia real)
+ *   node build-test.js --capturas -> _test con Pro y SIN sello, solo para capturas de la tienda y la web
  * Con el guid real, Power BI Desktop serviría la versión instalada desde AppSource y no la tuya.
  * Reglas del skill pbiviz-appsource: parchea -> empaqueta -> RESTAURA.
  */
@@ -14,6 +15,7 @@ const path = require("path");
 const { execSync } = require("child_process");
 
 const free = process.argv.includes("--free");
+const capturas = process.argv.includes("--capturas");
 const PBIVIZ = path.join(__dirname, "pbiviz.json");
 const VISUAL = path.join(__dirname, "src", "visual.ts");
 const origP = fs.readFileSync(PBIVIZ, "utf8");
@@ -57,7 +59,7 @@ const d = new Date();
 const pad = x => String(x).padStart(2, "0");
 const stamp = (free ? "testfree " : "test ") + d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
     " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + " v" + json.visual.version;
-vsrc = vsrc.replace(STAMP, 'const TEST_STAMP = "' + stamp + '"; // PATCHED BY build-test.js');
+if (!capturas) vsrc = vsrc.replace(STAMP, 'const TEST_STAMP = "' + stamp + '"; // PATCHED BY build-test.js');
 
 // Licencia: _test fuerza Pro (ISPRO_MARKER); _testfree deja que el licenseManager resuelva (sin plan para el GUID de
 // test, sale Free de verdad: vista previa con marca editando, Report theme y gráfico gratis en lectura).
