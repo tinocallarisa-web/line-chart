@@ -6,7 +6,7 @@
     "type": "git",
     "url": "https://github.com/tinocallarisa-web/line-chart"
   },
-  "license": "MIT",
+  "license": "SEE LICENSE IN terms",
   "scripts": {
     "pbiviz": "pbiviz",
     "start": "pbiviz start",
