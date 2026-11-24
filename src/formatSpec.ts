@@ -1180,6 +1180,57 @@ export const OBJECTS: Record<string, ObjSpec> = {
                 "label": "Zoom slider"
             }
         ]
+    },
+    "accessibility": {
+        "name": "accessibility",
+        "key": "Obj_accessibility",
+        "label": "Accessibility",
+        "props": [
+            {
+                "name": "highContrast",
+                "type": "enum",
+                "def": "auto",
+                "key": "Prop_accessibility_highContrast",
+                "label": "High contrast",
+                "items": [
+                    [
+                        "auto",
+                        "Enum_highContrast_auto",
+                        "Auto (follow Windows)"
+                    ],
+                    [
+                        "on",
+                        "Enum_highContrast_on",
+                        "On"
+                    ]
+                ]
+            },
+            {
+                "name": "focusColor",
+                "type": "fill",
+                "def": "",
+                "key": "Prop_accessibility_focusColor",
+                "label": "Focus outline color"
+            },
+            {
+                "name": "focusWidth",
+                "type": "num",
+                "def": 2,
+                "key": "Prop_accessibility_focusWidth",
+                "label": "Focus outline width",
+                "min": 1,
+                "max": 6
+            },
+            {
+                "name": "minTextSize",
+                "type": "num",
+                "def": 7,
+                "key": "Prop_accessibility_minTextSize",
+                "label": "Minimum text size",
+                "min": 7,
+                "max": 24
+            }
+        ]
     }
 };
 export const PANE: CardSpec[] = [
@@ -1347,6 +1398,17 @@ export const PANE: CardSpec[] = [
         "groups": [
             {
                 "obj": "interactions",
+                "toggle": null
+            }
+        ]
+    },
+    {
+        "uid": "accessibility",
+        "key": "Obj_accessibility",
+        "label": "Accessibility",
+        "groups": [
+            {
+                "obj": "accessibility",
                 "toggle": null
             }
         ]

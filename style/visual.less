@@ -17,7 +17,8 @@
     .lc-zoom-reset {
         position: absolute; top: 4px; right: 6px; z-index: 6; font: 600 11px "Segoe UI", sans-serif; padding: 2px 8px;
         border: 1px solid #8A8886; border-radius: 4px; cursor: pointer; opacity: 0.92;
-        &:focus-visible { outline: 2px solid #2B6CB0; outline-offset: 1px; }
+        // Color y grosor del foco: Accesibilidad (variables que pone el visual), con el azul de siempre por defecto.
+        &:focus-visible { outline: var(--lc-focus-w, 2px) solid var(--lc-focus, #2B6CB0); outline-offset: 1px; }
     }
 }
 

@@ -268,6 +268,13 @@ P = {
 "All series": ["Todas as séries", "Toutes les séries", "Alle Reihen", "Tutte le serie", "Alle reeksen", "Wszystkie serie", "すべての系列", "所有系列", "모든 계열", "Todas las series"],
 "First series only": ["Somente a primeira série", "Première série uniquement", "Nur die erste Reihe", "Solo la prima serie", "Alleen de eerste reeks", "Tylko pierwsza seria", "最初の系列のみ", "仅第一个系列", "첫 번째 계열만", "Solo la primera serie"],
 "Opacity (%)": ["Opacidade (%)", "Opacité (%)", "Deckkraft (%)", "Opacità (%)", "Dekking (%)", "Krycie (%)", "不透明度 (%)", "不透明度 (%)", "불투명도(%)", "Opacidad (%)"],
+# Accesibilidad (1.0.1.0): textos de Calendar 1.3
+"Accessibility": ["Acessibilidade", "Accessibilité", "Barrierefreiheit", "Accessibilità", "Toegankelijkheid", "Ułatwienia dostępu", "アクセシビリティ", "辅助功能", "접근성", "Accesibilidad"],
+"High contrast": ["Alto contraste", "Contraste élevé", "Hoher Kontrast", "Contrasto elevato", "Hoog contrast", "Wysoki kontrast", "ハイコントラスト", "高对比度", "고대비", "Alto contraste"],
+"Auto (follow Windows)": ["Automático (segue o Windows)", "Auto (selon Windows)", "Automatisch (wie Windows)", "Automatico (come Windows)", "Automatisch (volgt Windows)", "Automatycznie (jak Windows)", "自動 (Windows に従う)", "自动 (跟随 Windows)", "자동 (Windows 따름)", "Automático (según Windows)"],
+"Focus outline color": ["Cor do contorno de foco", "Couleur du contour de focus", "Farbe der Fokusumrandung", "Colore del contorno di focus", "Kleur van focuskader", "Kolor obramowania fokusu", "フォーカス枠の色", "焦点轮廓颜色", "포커스 윤곽선 색", "Color del contorno de foco"],
+"Focus outline width": ["Espessura do contorno de foco", "Épaisseur du contour de focus", "Breite der Fokusumrandung", "Spessore del contorno di focus", "Breedte van focuskader", "Grubość obramowania fokusu", "フォーカス枠の太さ", "焦点轮廓宽度", "포커스 윤곽선 두께", "Grosor del contorno de foco"],
+"Minimum text size": ["Tamanho mínimo do texto", "Taille minimale du texte", "Minimale Textgröße", "Dimensione minima del testo", "Minimale tekstgrootte", "Minimalny rozmiar tekstu", "最小文字サイズ", "最小文本大小", "최소 텍스트 크기", "Tamaño mínimo del texto"],
 "Interactions": ["Interações", "Interactions", "Interaktionen", "Interazioni", "Interacties", "Interakcje", "操作", "交互", "상호 작용", "Interacciones"],
 "Zoom": ["Zoom", "Zoom", "Zoom", "Zoom", "Zoomen", "Powiększenie", "ズーム", "缩放", "확대/축소", "Zoom"],
 "Y auto-fit when zoomed": ["Ajustar Y ao ampliar", "Ajuster Y lors du zoom", "Y beim Zoomen anpassen", "Adatta Y con lo zoom", "Y aanpassen bij zoomen", "Dopasuj Y przy powiększeniu", "ズーム時に Y を自動調整", "缩放时自动调整 Y", "확대 시 Y 자동 맞춤", "Ajustar Y al ampliar"],

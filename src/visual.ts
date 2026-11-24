@@ -195,6 +195,13 @@ export class Visual implements IVisual {
     private licenseIconTimer: number | null = null;
 
     private lastOptions: VisualUpdateOptions | null = null;
+    /**
+     * fetchMoreData (1.0.1.0): filas ya recibidas y rondas pedidas en la carga en curso. Tope de rondas: 10 × 30.000 más
+     * filas; si tras el tope Power BI sigue marcando segment, se dibuja lo recibido con el aviso UI_Segment.
+     */
+    private lastFetchCount = 0;
+    private fetchRounds = 0;
+    private static readonly MAX_FETCH_ROUNDS = 10;
     private dataView: DataView | null = null;
     /** Panel activo (el del puntero o el teclado): model, L, x, y1, y2 y drawn apuntan a él. */
     private model: Model | null = null;
@@ -446,6 +453,11 @@ export class Visual implements IVisual {
                 out[obj][p.name] = v;
             }
         }
+        // Accesibilidad → Minimum text size: suelo de todos los "Text size" del panel, antes de medir y colocar nada.
+        const min = Math.max(7, Math.min(24, Number(out.accessibility?.minTextSize) || 7));
+        for (const obj of Object.keys(out)) {
+            if (typeof out[obj].fontSize === "number" && out[obj].fontSize < min) out[obj].fontSize = min;
+        }
         return out;
     }
 
@@ -545,7 +557,7 @@ export class Visual implements IVisual {
         this.watermarkWhy.textContent = (nombres.length <= 2 ? nombres : nombres.slice(0, 2).concat(["+" + (nombres.length - 2)])).join(" · ");
         const size = Math.round(Math.max(22, Math.min(84, W / 8, H / 3.5)));
         this.watermarkEl.style.fontSize = size + "px";
-        this.watermarkWhy.style.fontSize = Math.round(size * 0.34) + "px";
+        this.watermarkWhy.style.fontSize = this.fz(Math.round(size * 0.34)) + "px";
     }
 
     private cancelLicenseIcon(): void {
@@ -604,18 +616,55 @@ export class Visual implements IVisual {
         return (h?.hostCapabilities?.allowInteractions ?? h?.allowInteractions) !== false;
     }
 
-    private get hc(): boolean { return !!(this.host.colorPalette as any)?.isHighContrast; }
-    private get hcFg(): string { return (this.host.colorPalette as any)?.foreground?.value ?? "#000000"; }
-    private get hcBg(): string { return (this.host.colorPalette as any)?.background?.value ?? "#FFFFFF"; }
-    private get hcSel(): string { return (this.host.colorPalette as any)?.foregroundSelected?.value ?? this.hcFg; }
+    /** Alto contraste del tema de Windows, tal como lo da el host. */
+    private get hcTema(): boolean {
+        const p: any = this.host.colorPalette;
+        return !!(p && p.isHighContrast);
+    }
+    /** Accesibilidad → High contrast = On (1.0.1.0): el modo propio de alto contraste aunque Windows no lo esté. */
+    private get hcForzado(): boolean {
+        return String((this.dataView?.metadata?.objects as any)?.accessibility?.highContrast ?? "auto") === "on";
+    }
+    /** Alto contraste efectivo: el de Windows o el forzado. Forzado sin tema: negro sobre blanco, selección azul. */
+    private get hc(): boolean { return this.hcTema || this.hcForzado; }
+    private get hcFg(): string { return this.hcTema ? ((this.host.colorPalette as any)?.foreground?.value ?? "#000000") : "#000000"; }
+    private get hcBg(): string { return this.hcTema ? ((this.host.colorPalette as any)?.background?.value ?? "#FFFFFF") : "#FFFFFF"; }
+    private get hcSel(): string { return this.hcTema ? ((this.host.colorPalette as any)?.foregroundSelected?.value ?? this.hcFg) : "#1A3FBF"; }
+
+    /** Tamaño mínimo de texto de Accesibilidad (7 = sin cambio: ningún texto del visual baja de 7 px). */
+    private get minText(): number {
+        const v = Number(this.settings?.accessibility?.minTextSize);
+        return isFinite(v) ? Math.max(7, Math.min(24, v)) : 7;
+    }
+    /** Un tamaño de texto fijo con el suelo de Accesibilidad aplicado. */
+    private fz(px: number): number { return Math.max(px, this.minText); }
+    /** Alto de una línea de aviso (10 px + interlínea), que crece con el mínimo de texto. */
+    private get noticeLine(): number { return this.fz(10) + 3; }
+
+    /** Color del foco del teclado: el de Accesibilidad si el autor lo eligió; si no, el de siempre (o el del tema). */
+    private focusColor(auto: string): string {
+        if (this.hcTema) return this.hcSel;
+        const c = String(this.settings?.accessibility?.focusColor ?? "");
+        return /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : (this.hc ? this.hcSel : auto);
+    }
+    private get focusWidth(): number {
+        const v = Number(this.settings?.accessibility?.focusWidth);
+        return isFinite(v) ? Math.max(1, Math.min(6, v)) : 2;
+    }
 
     // ── Update ───────────────────────────────────────────────────────────────
 
     public update(options: VisualUpdateOptions): void {
         this.events.renderingStarted(options);
         try {
-            this.lastOptions = options;
             const dv = options.dataViews?.[0] ?? null;
+            if (dv && this.streamSegments(options, dv)) {
+                // Se ha pedido el siguiente bloque: Power BI volverá a llamar a update() (Append) con todo junto. Este
+                // update termina aquí con su renderingFinished (1:1) y deja el dibujo anterior tal cual.
+                this.events.renderingFinished(options);
+                return;
+            }
+            this.lastOptions = options;
             this.dataView = dv;
             const vm = (options as any).viewMode;
             this.editing = typeof vm === "number" && vm !== 0;
@@ -638,6 +687,25 @@ export class Visual implements IVisual {
         // Fuera del try: un fallo de licencia nunca convierte un render correcto en renderingFailed.
         this.requestLicenseDeferred();
         try { this.notifyProFeatureBlocked(); } catch { /* best-effort */ }
+    }
+
+    /**
+     * Pide el siguiente bloque de filas si Power BI ha marcado metadata.segment (receta de Radar, pero también en
+     * Desktop: probado en el Donut el 24-11-2026). Append (1) y Segment (2) continúan la carga; cualquier otro update
+     * empieza de cero. Devuelve true si se ha pedido más (y no hay que dibujar todavía). El modelo lee las medidas de
+     * categorical.values[i].values, nunca de values.grouped(), que tras un Append se queda con el primer segmento.
+     */
+    private streamSegments(options: VisualUpdateOptions, dv: DataView): boolean {
+        const op = Number((options as any).operationKind);
+        if (op !== 1 && op !== 2) { this.lastFetchCount = 0; this.fetchRounds = 0; }
+        if (!dv.metadata?.segment) return false;
+        const loaded = dv.categorical?.categories?.[0]?.values?.length ?? 0;
+        if (loaded > this.lastFetchCount && this.fetchRounds < Visual.MAX_FETCH_ROUNDS) {
+            this.lastFetchCount = loaded;
+            this.fetchRounds++;
+            try { if (this.host.fetchMoreData(true)) return true; } catch { /* sin fetchMoreData: se dibuja lo recibido */ }
+        }
+        return false;
     }
 
     /** Repinta con las últimas options fuera de update(): no emite rendering events. */
@@ -686,6 +754,38 @@ export class Visual implements IVisual {
     }
 
     private render(options: VisualUpdateOptions): void {
+        this.renderChart(options);
+        this.aplicarFoco();
+        this.aplicarTextoMinimo();
+    }
+
+    /** Color y grosor del foco del teclado (Accesibilidad) en las variables CSS del contorno. */
+    private aplicarFoco(): void {
+        this.root.style.setProperty("--lc-focus", this.focusColor("#2B6CB0"));
+        this.root.style.setProperty("--lc-focus-w", this.focusWidth + "px");
+    }
+
+    /**
+     * Accesibilidad → Minimum text size, como red final: ningún texto pintado (SVG o HTML propio: asistente, landing,
+     * botón de zoom, marca de agua) queda por debajo del mínimo, aunque venga de un tamaño fijo o calculado. Con el
+     * mínimo por defecto (7) no hace nada: ningún texto del visual baja de 7 px.
+     */
+    private aplicarTextoMinimo(): void {
+        const min = this.minText;
+        if (min <= 7) return;
+        this.svg.selectAll<SVGTextElement, unknown>("text, tspan").each(function () {
+            const fs = parseFloat(this.style.fontSize || "");
+            if (!isFinite(fs) || fs < min) this.style.fontSize = min + "px";
+        });
+        const view = this.root.ownerDocument?.defaultView;
+        if (!view) return;
+        this.root.querySelectorAll<HTMLElement>(".lc-guide, .lc-guide *, .lc-landing, .lc-landing *, .lc-zoom-reset, .lc-msg, .lc-msg *").forEach(el => {
+            const fs = parseFloat(view.getComputedStyle(el).fontSize);
+            if (isFinite(fs) && fs < min) el.style.fontSize = min + "px";
+        });
+    }
+
+    private renderChart(options: VisualUpdateOptions): void {
         const dv = this.dataView;
         TEMPLATES.report = reportTemplate(this.host);
         // Ya se sabe si hay licencia: de ahí sale si toca vista previa (solo editando y con la licencia resuelta).
@@ -750,7 +850,7 @@ export class Visual implements IVisual {
         }
         if (noteH) this.drawSourceNote(W, H, noteH);
         if (TEST_STAMP && W >= 200) {
-            this.svg.append("text").attr("x", W - 4).attr("y", noteH ? 10 : H - 3).attr("text-anchor", "end").style("font-size", "9px")
+            this.svg.append("text").attr("x", W - 4).attr("y", noteH ? 10 : H - 3).attr("text-anchor", "end").style("font-size", this.fz(9) + "px")
                 .attr("fill", this.hc ? this.hcFg : "#A19F9D").text("[" + TEST_STAMP + "]");
         }
         this.activate(this.panels[0]);
@@ -1071,7 +1171,7 @@ export class Visual implements IVisual {
         const n = this.models.length;
         // Leyenda y avisos globales
         const notes = this.notices();
-        const noticeH = notes.length ? notes.length * 13 + 4 : 0;
+        const noticeH = notes.length ? notes.length * this.noticeLine + 4 : 0;
         let legendRows: LegendItem[][] = [];
         let legendH = 0;
         if (s.legend.show && H >= 170) {
@@ -1420,7 +1520,7 @@ export class Visual implements IVisual {
             return L;
         }
         const notes = inPanel ? [] : this.notices();
-        L.noticeH = notes.length ? notes.length * 13 + 4 : 0;
+        L.noticeH = notes.length ? notes.length * this.noticeLine + 4 : 0;
         const plotMin = Math.max(36, H * 0.45);
         // Lo que el usuario activa es el MÁXIMO: si no cabe, se quita (no se encoge). Lo último en irse, las líneas.
         const xfs = Number(s.xAxis.fontSize), yfs = Number(s.yAxis.fontSize), y2fs = Number(s.y2Axis.fontSize);
@@ -1695,7 +1795,7 @@ export class Visual implements IVisual {
                 let lk = -1;
                 for (let k = Math.min(r.values.length - 1, this.visHi); k > ser.lastIndex; k--) if (r.values[k] !== null) { lk = k; break; }
                 if (L && L.mode === "full" && lk >= 0) {
-                    const fs = Math.max(8, Number(s.endLabels.fontSize) - 1);
+                    const fs = this.fz(Math.max(8, Number(s.endLabels.fontSize) - 1));
                     const txt = this.refName(r.kind) + "  " + this.fmtShort(r.values[lk], r.formats[lk] ?? r.format);
                     const px = this.x(this.model.keys[lk].pos), py = y(r.values[lk]);
                     const t = gg.append("text").attr("class", "lc-ref-label").attr("x", px - 2).attr("y", py - 6 >= L.top + fs ? py - 6 : py + fs + 4)
@@ -2306,9 +2406,10 @@ export class Visual implements IVisual {
         const notes = this.notices();
         const g = this.svg.append("g").attr("class", "lc-notice").attr("role", "status");
         notes.forEach((n, i) => {
-            const t = g.append("text").attr("x", 6).attr("y", L.H - L.noticeH + 12 + i * 13).style("font-size", "10px")
+            const fs = this.fz(10);
+            const t = g.append("text").attr("x", 6).attr("y", L.H - L.noticeH + fs + 2 + i * this.noticeLine).style("font-size", fs + "px")
                 .attr("fill", this.hc ? this.hcFg : (i === 0 && this.model.segment ? (this.look?.down ?? "#A4262C") : this.axisColor("xAxis")))
-                .text("⚠ " + this.fit(n, 10, L.W - 20));
+                .text("⚠ " + this.fit(n, fs, L.W - 20));
             t.append("title").text(n);
         });
     }
@@ -2316,10 +2417,11 @@ export class Visual implements IVisual {
     private message(W: number, H: number, text: string): void {
         const m = this.model;
         this.svg.append("text").attr("class", "lc-msg-text").attr("x", W / 2).attr("y", H / 2).attr("text-anchor", "middle")
-            .style("font-size", "12px").attr("fill", this.axisColor("xAxis")).text(this.fit(text, 12, W - 16));
+            .style("font-size", this.fz(12) + "px").attr("fill", this.axisColor("xAxis")).text(this.fit(text, this.fz(12), W - 16));
         if (m && m.segment) {
-            this.svg.append("text").attr("x", W / 2).attr("y", H / 2 + 18).attr("text-anchor", "middle").style("font-size", "10px")
-                .attr("fill", this.hc ? this.hcFg : "#A4262C").text(this.fit(this.notices()[0], 10, W - 16));
+            const fs = this.fz(10);
+            this.svg.append("text").attr("x", W / 2).attr("y", H / 2 + 6 + this.fz(12)).attr("text-anchor", "middle").style("font-size", fs + "px")
+                .attr("fill", this.hc ? this.hcFg : "#A4262C").text(this.fit(this.notices()[0], fs, W - 16));
         }
     }
 
@@ -2455,8 +2557,8 @@ export class Visual implements IVisual {
             if (v === null) return;
             const focused = this.hasFocus && i === this.focusSeries;
             g.append("circle").attr("class", focused ? "lc-focus" : null).attr("cx", x).attr("cy", d.y(v)).attr("r", focused ? 5.5 : 3.5)
-                .attr("fill", this.bgColor).attr("stroke", this.hc ? (focused ? this.hcSel : this.hcFg) : d.s.color)
-                .attr("stroke-width", focused ? 3 : 2).style("pointer-events", "none");
+                .attr("fill", this.bgColor).attr("stroke", focused ? this.focusColor(d.s.color) : (this.hc ? this.hcFg : d.s.color))
+                .attr("stroke-width", focused ? this.focusWidth + 1 : 2).style("pointer-events", "none");
         });
     }
 
@@ -3032,7 +3134,7 @@ export class Visual implements IVisual {
         st.id = ID;
         st.textContent = [
             ".lc-root .lc-svg:focus{outline:none}",
-            ".lc-root .lc-svg:focus-visible{outline:2px solid #2B6CB0;outline-offset:-2px}",
+            ".lc-root .lc-svg:focus-visible{outline:var(--lc-focus-w,2px) solid var(--lc-focus,#2B6CB0);outline-offset:calc(0px - var(--lc-focus-w,2px))}",
             "@media (forced-colors: active){.lc-root .lc-svg:focus-visible{outline-color:Highlight}}",
         ].join("");
         (doc.head ?? this.root).appendChild(st);
@@ -3047,7 +3149,10 @@ export class Visual implements IVisual {
         if (p.type === "bool") return { ...base, control: { type: "ToggleSwitch" as any, properties: { descriptor, value: !!value } } } as any;
         if (p.type === "num") return { ...base, control: { type: "NumUpDown" as any, properties: { descriptor, value: Number(value),
             options: { minValue: p.min !== undefined ? { type: 0, value: p.min } : undefined, maxValue: p.max !== undefined ? { type: 1, value: p.max } : undefined } } } } as any;
-        if (p.type === "fill") return { ...base, control: { type: "ColorPicker" as any, properties: { descriptor, value: { value: String(value) } } } } as any;
+        if (p.type === "fill") {
+            const shown = obj === "accessibility" && p.name === "focusColor" && !value ? this.focusColor("#2B6CB0") : String(value);
+            return { ...base, control: { type: "ColorPicker" as any, properties: { descriptor, value: { value: shown } } } } as any;
+        }
         if (p.type === "enum") {
             const items = (p.items ?? []).map(([v, k, l]) => ({ value: v, displayName: this.t(k, l) }));
             const cur = items.find(it => it.value === value) ?? items[0];

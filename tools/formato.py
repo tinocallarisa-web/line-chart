@@ -170,6 +170,14 @@ OBJECTS = [
         ("yAutoFit", "Y auto-fit when zoomed", "bool", True, {}),
         ("zoomSlider", "Zoom slider", "bool", False, {}),
     ]),
+    # Accesibilidad (1.0.1.0, receta de Calendar 1.3): alto contraste forzado sin depender de Windows, color y grosor del
+    # foco del teclado (vacío = el automático de siempre) y tamaño mínimo para TODOS los textos (7 = sin cambio).
+    ("accessibility", "Accessibility", [
+        ("highContrast", "High contrast", "enum", "auto", {"items": [("auto", "Auto (follow Windows)"), ("on", "On")]}),
+        ("focusColor", "Focus outline color", "fill", "", {}),
+        ("focusWidth", "Focus outline width", "num", 2, {"min": 1, "max": 6}),
+        ("minTextSize", "Minimum text size", "num", 7, {"min": 7, "max": 24}),
+    ]),
 ]
 
 # Orden común de la colección: Style template, tarjetas propias, ejes, leyenda, small multiples.
@@ -188,6 +196,8 @@ PANE = [
     ("smallMultiples", "Small multiples (Pro)", [("smallMultiples", None, None)]),
     ("sourceNote", "Source note", [("sourceNote", None, "show")]),
     ("interactions", "Interactions", [("interactions", None, None)]),
+    # Accessibility al final, como en el resto de la colección.
+    ("accessibility", "Accessibility", [("accessibility", None, None)]),
 ]
 
 
