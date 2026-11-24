@@ -2,6 +2,11 @@
 
 All notable changes to Line Chart by TCViz. Power BI four-part version numbers.
 
+## 1.0.1.0 — 2026-11-24
+
+- New Accessibility card at the end of the Format pane: High contrast (Auto, following Windows, or On to force the high-contrast look without a Windows theme), Focus outline color and width for keyboard focus, and Minimum text size, a floor for every text in the chart (axes, legend, end labels, events, annotations, source note and notices).
+- Large tables: when Power BI sends the data in parts (over 30,000 rows), the chart now asks for the rest, in Power BI Desktop too, up to 330,000 rows (eleven parts). The "only part of the data" notice stays only if the data is still incomplete after that.
+
 ## 1.0.0.0 — 2026-11-10
 
 - First release: a line chart for business time series on a real date axis, where an empty period is a gap and never a zero (Break, Connect or Zero, your choice). Text, numbers or a date hierarchy give a category axis, with drilldown on a hierarchy.

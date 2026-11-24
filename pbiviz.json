@@ -4,7 +4,7 @@
     "displayName": "Line Chart by TCViz",
     "guid": "lineChartTCVizD8CCBAB58761478B9C59A5FA700EC503",
     "visualClassName": "Visual",
-    "version": "1.0.0.0",
+    "version": "1.0.1.0",
     "description": "Line chart for business time series: honest date gaps, several series and a secondary axis, end labels, plan, prior year and forecast with gap shading, target and trend lines, zoom, events and annotations.",
     "supportUrl": "https://tinocallarisa-web.github.io/line-chart/support.html",
     "privacyTermsLink": "https://tinocallarisa-web.github.io/line-chart/privacy.html",

@@ -1,7 +1,7 @@
 {
   "name": "line-chart-tcviz",
   "description": "Line chart for Power BI by TCViz: time axis with honest gaps, legend series, secondary axis, end labels and plan / prior year references.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/tinocallarisa-web/line-chart"
