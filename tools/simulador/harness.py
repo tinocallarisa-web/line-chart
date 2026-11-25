@@ -164,6 +164,17 @@ def suma_filtrada(keys, base):
 
 
 STUB = r"""
+window.__store = { meta: {}, rows: {} };
+window.__storeMerge = (items) => { for (const it of items) {
+   const tgt = it.selector ? (__store.rows[it.selector.data[0]] = __store.rows[it.selector.data[0]] || {}) : __store.meta;
+   tgt[it.objectName] = Object.assign({}, tgt[it.objectName] || {}, it.properties); } };
+window.__rowKey = (cats, i) => cats.map(c => c.source.displayName + '=' + c.values[i]).join('|');
+// El dataView que entrega el host: la base + lo guardado en el informe.
+window.__apply = (base) => { const dv = JSON.parse(JSON.stringify(base)); const cats = dv.categorical.categories;
+   dv.metadata.objects = Object.assign({}, dv.metadata.objects || {}, JSON.parse(JSON.stringify(__store.meta)));
+   const leg = cats.find(c => c.source.roles.legend);
+   if (leg && Object.keys(__store.rows).length) leg.objects = leg.values.map((_, i) => __store.rows[__rowKey(cats, i)] || null);
+   return dv; };
 window.__ev = []; window.__menu = []; window.__nSelect = 0; window.__maxSel = 0; window.__sel = [];
 window.powerbi = { visuals: { plugins: {} }, extensibility: {} };
 (function(){
@@ -196,7 +207,10 @@ window.powerbi = { visuals: { plugins: {} }, extensibility: {} };
     getColor(k){ if (!(k in asignados)) asignados[k] = COLORS[(nAsig++) % COLORS.length]; return {value: asignados[k]}; } },
   licenseManager: { getAvailableServicePlans(){ return Promise.resolve({ plans: window.__plan ? [{ spIdentifier: window.__plan, state: 1 }] : [], isLicenseUnsupportedEnv: false, isLicenseInfoAvailable: true }); },
      notifyFeatureBlocked(){ return Promise.resolve(true); }, notifyLicenseRequired(){ return Promise.resolve(true); }, clearLicenseNotification(){ return Promise.resolve(true); } },
-  persistProperties(p){ (window.__persist = window.__persist || []).push(p); }, launchUrl(){}, applyJsonFilter(){ window.__jsonFilter = true; },
+  // Como Power BI: persistProperties guarda en el informe (selector nulo → metadata.objects; selector de fila → los
+  // objects de las filas cuya identidad coincide) y dispara un update con los objects nuevos.
+  persistProperties(p){ (window.__persist = window.__persist || []).push(p); __storeMerge(p.merge || []);
+     setTimeout(() => window.__again && window.__again(), 0); }, launchUrl(){}, applyJsonFilter(){ window.__jsonFilter = true; },
   displayWarningIcon(){}, refreshHostData(){},
  };
 })();
@@ -231,7 +245,7 @@ window.__lc = {
 """
 
 
-async def page(b, data, W=1400, H=620, locale="en-US", plan=PLAN):
+async def page(b, data, W=1400, H=620, locale="en-US", plan=PLAN, vm=0, store=None):
     guid = json.load(io.open(os.path.join(DROP, "pbiviz.json"), encoding="utf-8"))["visual"]["guid"]
     pg = await b.new_page(viewport={"width": W + 20, "height": H + 20})
     errs = []
@@ -244,7 +258,9 @@ async def page(b, data, W=1400, H=620, locale="en-US", plan=PLAN):
     await pg.add_script_tag(content=HELP)
     await pg.add_script_tag(path=os.path.join(DROP, "visual.js"))
     await pg.evaluate("(g) => { window.__v = powerbi.visuals.plugins[g].create({ element: document.getElementById('host'), host: __host }); }", guid)
-    pg._errs, pg._dims = errs, (W, H)
+    pg._errs, pg._dims, pg._vm = errs, (W, H), vm
+    if store:
+        await pg.evaluate("(st) => { window.__store = st; }", store)
     await upd(pg, data)
     await pg.wait_for_timeout(150)   # la licencia resuelve después del primer pintado
     return pg
@@ -252,8 +268,9 @@ async def page(b, data, W=1400, H=620, locale="en-US", plan=PLAN):
 
 async def upd(pg, data):
     W, H = pg._dims
-    await pg.evaluate("([dv, W, H]) => { window.__cats = dv.categorical.categories; __v.update({ dataViews: [dv], viewport: { width: W, height: H }, type: 2, operationKind: 0, viewMode: 0, editMode: 0 }); }",
-                      [data, W, H])
+    await pg.evaluate("""([dv, W, H, vm]) => { window.__base = dv; window.__cats = dv.categorical.categories;
+        window.__again = () => __v.update({ dataViews: [__apply(window.__base)], viewport: { width: W, height: H }, type: 2, operationKind: 0, viewMode: vm, editMode: 0 });
+        window.__again(); }""", [data, W, H, getattr(pg, "_vm", 0)])
     await pg.wait_for_timeout(60)
 
 
@@ -515,48 +532,123 @@ COLOR_JS = r"""(nombre) => { const fm = __v.getFormattingModel(); const out = []
   walk(fm); return out.find(x => x.name === nombre) || null; }"""
 
 
-def con_color(data, sel_key, color):
-    """Como Power BI con un objeto guardado con selector de datos: lo entrega en legendCol.objects[r] SOLO en las filas
-    cuya identidad coincide con el selector (aquí, la de una fila)."""
+def sin_anio(data, anio):
+    """Un filtro (segmentador de Year) que quita un año: la base sin esas filas."""
     d = json.loads(json.dumps(data))
-    leg = next(c for c in d["categorical"]["categories"] if c["source"]["roles"].get("legend"))
-    cats = d["categorical"]["categories"]
-    objs = []
-    for i in range(len(leg["values"])):
-        key = "|".join(c["source"]["displayName"] + "=" + str(c["values"][i]) for c in cats)
-        objs.append({"dataColors": {"fill": {"solid": {"color": color}}}} if key == sel_key else None)
-    leg["objects"] = objs
-    return d
-
-
-async def tanda_color(b):
-    """Punto 4 del encargo (25-11): el selector del color por serie es getSelector de la identidad de la PRIMERA fila de
-    la serie. Se comprueba que guarda y restaura, y qué pasa si un filtro quita esa fila."""
-    print("\nColor por serie (selector de la primera fila de la serie)")
-    pg = await page(b, dv_regiones())
-    e = await pg.evaluate(COLOR_JS, "South")
-    key = (e or {}).get("sel", {}).get("data", [None])[0] if e else None
-    check("panel de formato: hay color para South con selector de datos", key is not None, str(e))
-    check("ese selector es la fila Jan 2023 de South (identidad de fila)", key == "Year=2023|Month=Jan|Region=South", str(key))
-    stroke = "() => { const g = Array.from(document.querySelectorAll('.lc-series')).find(g => g.getAttribute('data-id') === 'm.Net sales␟South'); return g.querySelector('path.lc-line').getAttribute('stroke'); }"
-    await upd(pg, con_color(dv_regiones(), key, "#FF0000"))
-    check("color guardado con ese selector: South se pinta #FF0000", (await pg.evaluate(stroke)).upper() == "#FF0000", await pg.evaluate(stroke))
-    e2 = await pg.evaluate(COLOR_JS, "South")
-    check("el panel muestra el color guardado y el mismo selector", e2 and e2["sel"]["data"][0] == key, str(e2))
-    # Un filtro de página que quita 2023: la fila que lleva el color ya no llega → el color guardado no se ve.
-    sin23 = dv_regiones()
-    keep = [i for i, y in enumerate(sin23["categorical"]["categories"][0]["values"]) if y != 2023]
-    for c in sin23["categorical"]["categories"] + sin23["categorical"]["values"]:
+    keep = [i for i, y in enumerate(d["categorical"]["categories"][0]["values"]) if y != anio]
+    for c in d["categorical"]["categories"] + d["categorical"]["values"]:
         c["values"] = [c["values"][i] for i in keep]
         if "identity" in c:
             c["identity"] = [c["identity"][i] for i in keep]
-    await upd(pg, con_color(sin23, key, "#FF0000"))
-    perdido = (await pg.evaluate(stroke)).upper() != "#FF0000"
-    e3 = await pg.evaluate(COLOR_JS, "South")
-    print(f"  INFO  con un filtro que quita 2023, South {'PIERDE' if perdido else 'conserva'} el color; selector nuevo: {e3 and e3['sel']['data'][0]}")
-    await sin_errores(pg, "color por serie")
+    return d
+
+
+# El usuario cambia una propiedad de la serie en el panel: Power BI la guarda con el selector del descriptor y actualiza.
+PANE_SET = r"""([nombre, prop, valor]) => { const fm = __v.getFormattingModel(); let sel = null;
+  const walk = o => { if (sel || !o || typeof o !== 'object') return; if (Array.isArray(o)) { o.forEach(walk); return; }
+    const d = o.control && o.control.properties && o.control.properties.descriptor;
+    if (d && d.objectName === 'dataColors' && d.propertyName === 'fill' && o.displayName === nombre) sel = d.selector;
+    Object.values(o).forEach(walk); };
+  walk(fm); const k = sel.data[0]; __store.rows[k] = __store.rows[k] || {}; const dc = __store.rows[k].dataColors = Object.assign({}, __store.rows[k].dataColors || {});
+  if (valor === null) delete dc[prop]; else dc[prop] = prop === 'fill' ? { solid: { color: valor } } : valor;
+  if (!Object.keys(dc).length) delete __store.rows[k];
+  window.__again(); return k; }"""
+STROKE = "() => { const g = Array.from(document.querySelectorAll('.lc-series')).find(g => g.getAttribute('data-id') === 'm.Net sales␟South'); const p = g.querySelector('path.lc-line'); return [p.getAttribute('stroke').toUpperCase(), p.getAttribute('stroke-width')]; }"
+NPERSIST = "() => (window.__persist || []).length"
+MAPA = "() => { const m = (__store.meta.seriesStyles || {}).map; return m ? JSON.parse(m) : null; }"
+
+
+async def tanda_color(b):
+    """25-11 (build .42, Tino en Desktop): con un color fijo en South y un segmentador de Year sin 2023, South cambiaba
+    de color. El panel guarda dataColors con el selector de UNA fila de la serie; desde la 1.0.1 el visual guarda además
+    seriesStyles.map (oculto) por valor de leyenda y dibuja con él."""
+    print("\nColor por serie: mapa persistente por valor de leyenda (seriesStyles.map)")
+    full, s23 = dv_regiones(), sin_anio(dv_regiones(), 2023)
+    pg = await page(b, full, vm=1)
+    e = await pg.evaluate(COLOR_JS, "South")
+    check("panel: el color de South apunta a la fila Jan 2023 (primera de la serie)", e and e["sel"]["data"][0] == "Year=2023|Month=Jan|Region=South", str(e))
+    defecto = (await pg.evaluate(STROKE))[0]
+    # 1 · Color fijo para South (editando): se dibuja y se guarda el mapa con UN persist; el update que provoca no persiste.
+    await pg.evaluate(PANE_SET, ["South", "fill", "#FF0000"])
+    await pg.wait_for_timeout(150)
+    check("color fijo #FF0000: South roja", (await pg.evaluate(STROKE))[0] == "#FF0000", str(await pg.evaluate(STROKE)))
+    mp = await pg.evaluate(MAPA)
+    check("mapa guardado: South → #FF0000 con la fila Jan 2023", mp and mp.get("South", {}).get("fill") == "#FF0000" and "2023" in mp["South"]["k"] and '"Jan"' in mp["South"]["k"], str(mp))
+    n1 = await pg.evaluate(NPERSIST)
+    await upd(pg, full)
+    await pg.wait_for_timeout(100)
+    check("un solo persist por cambio y ninguno en los updates siguientes (sin bucle)", n1 == 1 and await pg.evaluate(NPERSIST) == 1, f"{n1} → {await pg.evaluate(NPERSIST)}")
+    # 2 · Segmentador sin 2023: la fila del selector desaparece, el color se conserva
+    await upd(pg, s23)
+    await pg.wait_for_timeout(100)
+    check("filtro sin 2023: South SIGUE roja (defecto de la .42)", (await pg.evaluate(STROKE))[0] == "#FF0000", str(await pg.evaluate(STROKE)))
+    check("filtro sin 2023: sin persist", await pg.evaluate(NPERSIST) == 1)
+    e = await pg.evaluate(COLOR_JS, "South")
+    check("filtro sin 2023: el panel apunta a la primera fila visible (Jan 2024)", e and e["sel"]["data"][0] == "Year=2024|Month=Jan|Region=South", str(e))
+    # 3 · Cambiar el color con el filtro puesto
+    await pg.evaluate(PANE_SET, ["South", "fill", "#00AA00"])
+    await pg.wait_for_timeout(150)
+    check("con el filtro, cambio a #00AA00: South verde", (await pg.evaluate(STROKE))[0] == "#00AA00", str(await pg.evaluate(STROKE)))
+    mp = await pg.evaluate(MAPA)
+    check("mapa: South → #00AA00 y la fila autoritativa pasa a Jan 2024", mp and mp["South"].get("fill") == "#00AA00" and "2024" in mp["South"]["k"], str(mp))
+    # 3b · Solo el grosor con el filtro: se fusiona (el color se conserva)
+    await pg.evaluate(PANE_SET, ["South", "lineWidth", 5])
+    await pg.wait_for_timeout(150)
+    sk = await pg.evaluate(STROKE)
+    check("con el filtro, grosor 5: South verde y de 5 px", sk[0] == "#00AA00" and float(sk[1]) == 5, str(sk))
+    # 4 · Quitar el filtro: la fila Jan 2023 aún lleva el rojo viejo → no aparecen dos colores
+    await upd(pg, full)
+    await pg.wait_for_timeout(150)
+    sk = await pg.evaluate(STROKE)
+    viejo = await pg.evaluate("() => JSON.stringify(__store.rows['Year=2023|Month=Jan|Region=South'] || null)")
+    check("sin filtro: South verde (no vuelve el rojo de la fila Jan 2023)", sk[0] == "#00AA00" and float(sk[1]) == 5, f"{sk} (fila 2023: {viejo})")
+    e = await pg.evaluate(COLOR_JS, "South")
+    check("sin filtro: el panel apunta a la fila autoritativa (Jan 2024), no a la del rojo viejo", e and e["sel"]["data"][0] == "Year=2024|Month=Jan|Region=South", str(e))
+    n4 = await pg.evaluate(NPERSIST)
+    # 5 · Cambiar sin filtro, y restablecer: vuelve el automático, no el rojo viejo
+    await pg.evaluate(PANE_SET, ["South", "fill", "#0000FF"])
+    await pg.wait_for_timeout(150)
+    check("sin filtro, cambio a #0000FF: South azul", (await pg.evaluate(STROKE))[0] == "#0000FF", str(await pg.evaluate(STROKE)))
+    await pg.evaluate(PANE_SET, ["South", "fill", None])
+    await pg.evaluate(PANE_SET, ["South", "lineWidth", None])
+    await pg.wait_for_timeout(200)
+    sk = await pg.evaluate(STROKE)
+    check("restablecer: South vuelve al color automático (no al rojo viejo)", sk[0] == defecto, f"{sk} vs {defecto}")
+    # 6 · Marcadores (selección restaurada): no tocan el color ni persisten
+    await pg.evaluate(PANE_SET, ["South", "fill", "#AA00AA"])
+    await pg.wait_for_timeout(150)
+    np0 = await pg.evaluate(NPERSIST)
+    keys = [f"Year={r['Year']}|Month={r['Month']}|Region=South" for r in VENTAS if r["Region"] == "South"]
+    await pg.evaluate("(ks) => { window.__onSel(ks.map(k => __mkId(k))); }", keys)
+    await pg.wait_for_timeout(80)
+    s = await st(pg)
+    check("marcador: South seleccionada, sigue #AA00AA y sin persist", s["op"].get(SID("North") + "#0") == "0.3" and (await pg.evaluate(STROKE))[0] == "#AA00AA" and await pg.evaluate(NPERSIST) == np0, f"{np0} {await pg.evaluate(NPERSIST)}")
+    total = await pg.evaluate(NPERSIST)
+    check(f"persist solo cuando cambia algo ({total} en toda la secuencia, ≥ {n4})", total >= n4 and total <= 8, str(total))
+    store = await pg.evaluate("() => JSON.parse(JSON.stringify(__store))")
+    await sin_errores(pg, "color por serie (editando)")
     await pg.close()
-    return perdido
+    # 7 · Lectura (sin permiso de escritura): el mapa ya guardado basta, sin persist
+    pg = await page(b, s23, vm=0, store=store)
+    await pg.wait_for_timeout(100)
+    check("lectura con filtro sin 2023: South conserva #AA00AA con el mapa guardado", (await pg.evaluate(STROKE))[0] == "#AA00AA", str(await pg.evaluate(STROKE)))
+    check("lectura: nunca persistProperties", await pg.evaluate(NPERSIST) == 0)
+    await sin_errores(pg, "color por serie (lectura)")
+    await pg.close()
+    # 8 · Informe de la 1.0.0 (sin mapa, color en la primera fila): igual que antes; editando, se migra al mapa una vez
+    legacy = {"meta": {}, "rows": {"Year=2023|Month=Jan|Region=South": {"dataColors": {"fill": {"solid": {"color": "#FF8800"}}}}}}
+    pg = await page(b, full, vm=0, store=legacy)
+    check("1.0.0 en lectura: South #FF8800 como antes, sin persist", (await pg.evaluate(STROKE))[0] == "#FF8800" and await pg.evaluate(NPERSIST) == 0)
+    await pg.close()
+    pg = await page(b, full, vm=1, store=json.loads(json.dumps(legacy)))
+    await pg.wait_for_timeout(150)
+    mp = await pg.evaluate(MAPA)
+    check("1.0.0 editando: se migra al mapa con un persist", mp and mp.get("South", {}).get("fill") == "#FF8800" and await pg.evaluate(NPERSIST) == 1, f"{mp} {await pg.evaluate(NPERSIST)}")
+    await upd(pg, s23)
+    await pg.wait_for_timeout(100)
+    check("1.0.0 migrado: con filtro sin 2023 South sigue #FF8800", (await pg.evaluate(STROKE))[0] == "#FF8800" and await pg.evaluate(NPERSIST) == 1)
+    await sin_errores(pg, "color por serie (migración)")
+    await pg.close()
 
 
 def comprobar_capabilities():
