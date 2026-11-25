@@ -1,4 +1,4 @@
-# AppSource Listing — Line Chart by TCViz 1.0.0.0
+# AppSource Listing — Line Chart by TCViz 1.0.1.0
 
 Copy ready to paste into Partner Center, English only. **Editing this file does not change the offer**: every field
 is pasted by hand in Partner Center.
@@ -10,6 +10,10 @@ Rules for this listing: start with the problem; no comparison with other marketp
 Power BI does natively; no superlatives or figures that cannot be proven; "Power BI" with that capitalisation;
 "conditional formatting (fx)" and "dynamic format strings" written as such (OKviz looks for them). No prices in the
 description (they go in the plan). No mention of team or organisation licences.
+
+**1.0.1.0 (2026-11-25): the description changes.** The Accessibility card and the fix to series selection (it filtered
+a single month) matter to the buyer, so the description gains a WHAT'S NEW IN 1.0.1.0 block and two bullets in WORKS
+LIKE A NATIVE VISUAL. Name, summary, keywords, plan and video do not change.
 
 ---
 
@@ -47,10 +51,11 @@ Left out: `small multiples`, `annotations` (functions, not problems), `year over
 
 ## Description
 
-*(3,470 characters as text; 4,261 as the HTML that is pasted, 4,305 counting CRLF; limit 5,000)*
+*(1.0.1.0: 4,051 characters as text; 4,507 as the HTML that is pasted, 4,555 counting CRLF; limit 5,000)*
 
 Paste the **HTML**, not this text: `python C:\tcviz\utillaje\ficha_html.py "C:\tcviz\dev\LineChart"` writes
-`docs/APPSOURCE-DESCRIPTION.html` (brand template). The 5,000-character limit counts the tags.
+`docs/APPSOURCE-DESCRIPTION.html` (default format: `<strong>` titles with an emoji, no inline styles; 1.0.0.0 was
+pasted with the brand template, and 1.0.1.0 changes it because the description is pasted again anyway). The 5,000-character limit counts the tags.
 
 ```
 The monthly review asks two questions: are we on plan, and why did that month drop? A line of sales month by month answers neither. And a measure that returns 0 instead of blank makes an empty month look like a collapse.
@@ -81,8 +86,9 @@ FREE AND PRO
 The free version is a complete, correct line chart, with plan, gap shading and target line included; field and row limits are the same in both. Pro adds the context. Turn on a Pro feature while editing without a licence and it is drawn working on your own data under a "Pro preview" watermark; report readers without a licence see the free chart.
 
 WORKS LIKE A NATIVE VISUAL
-• Click to filter, Ctrl+click for several, highlight from other visuals, bookmarks, drilldown on a hierarchy, context menu, report page tooltips
+• Click a point, or a legend item, line or end label to filter by the whole series; Ctrl+click for several, highlight from other visuals, bookmarks, drilldown on a hierarchy, context menu, report page tooltips
 • Keyboard navigation, screen-reader descriptions, high contrast and a layout that adapts down to a sparkline
+• Accessibility card: high contrast on demand, focus outline colour and width, and a minimum text size for every text in the chart
 • The number format of each measure, dynamic format strings included; format on the canvas; twelve languages; a setup guide and a start screen
 
 PRIVACY
@@ -96,9 +102,13 @@ GETTING STARTED
 Documentation, FAQ and the events recipe: https://tinocallarisa-web.github.io/line-chart/support.html
 Questions: https://github.com/tinocallarisa-web/line-chart/discussions
 Support: support@tcviz.com
-```
 
-No "What's new" block: this is the first version.
+WHAT'S NEW IN 1.0.1.0
+• Accessibility card: high contrast without a Windows theme, focus outline, minimum text size
+• Selecting a series filters other visuals by the whole series; before, it could filter a single month
+• Series colours and line styles stay when a slicer hides part of the data
+• Large tables: the chart asks Power BI for the rest of the data, in Power BI Desktop too
+```
 
 ## Plan
 
@@ -137,7 +147,7 @@ No "What's new" block: this is the first version.
 | Product page | https://tcviz.com/product/line-chart/ |
 | Logo | `assets/icon_300x300.png` |
 | Screenshots | `assets/infographic.png` (free), `assets/infographic-pro.png` (Pro), then `assets/Image_1.png`, `assets/Image_2.png`, `assets/Image_3.png` (all 1366x768; infographics regenerated with `python tools/gen_infographic.py`) |
-| Package | `dist/lineChartTCVizD8CCBAB58761478B9C59A5FA700EC503.1.0.0.0.pbiviz` |
+| Package | `dist/lineChartTCVizD8CCBAB58761478B9C59A5FA700EC503.1.0.1.0.pbiviz` (new package; the production build is made only after Tino confirms the test build) |
 | Sample report | `LineChart_sample.pbix` (6 pages; no `_test` in the name) |
 
 The video goes **only** in its canonical form, `https://www.youtube.com/watch?v=<id>`: never a short link, never
@@ -145,20 +155,15 @@ The video goes **only** in its canonical form, `https://www.youtube.com/watch?v=
 
 ---
 
-## What to paste by hand in Partner Center (1.0.0.0)
+## What to paste by hand in Partner Center (1.0.1.0 update)
 
-Editing this file changes nothing in the offer. In Partner Center:
+Editing this file changes nothing in the offer. For the 1.0.1.0 submission:
 
-1. **Offer listing → Name:** `Line Chart by TCViz`.
-2. **Offer listing → Search results summary:** the block above (97 characters).
-3. **Offer listing → Description:** the contents of `docs/APPSOURCE-DESCRIPTION.html` (run `ficha_html.py` again after
-   any edit), not the text above.
-4. **Offer listing → Search keywords:** `line chart`, `forecast vs actual`, `time series`.
-5. **Offer listing → Videos:** `https://www.youtube.com/watch?v=R7EQ3PDNhMs`.
-6. **Offer listing → Support / Privacy / Terms URLs:** the table above. Check each one with a real request after the
-   repo is pushed: until then GitHub Pages answers 404.
-7. **Plans → new plan:** Plan ID `line-chart-pro`, name, prices in the pricing fields, no trial; Plan description from
-   `docs/PLAN-DESCRIPTION.html`.
-8. **Technical configuration:** the 1.0.0.0 `.pbiviz` and `LineChart_sample.pbix`.
-9. **Review and publish → Notes for certification:** `docs/CERTIFICATION-NOTES-SHORT.txt`.
-10. **Screenshots and logo.**
+1. **Offer listing → Description:** paste again the contents of `docs/APPSOURCE-DESCRIPTION.html` (the HTML code,
+   with the tags visible), regenerated with `ficha_html.py`. It now has the WHAT'S NEW IN 1.0.1.0 block.
+2. **Technical configuration:** the new 1.0.1.0 `.pbiviz` (production build, only after the test build is approved)
+   and `LineChart_sample.pbix`.
+3. **Review and publish → Notes for certification:** `docs/CERTIFICATION-NOTES-SHORT.txt` (the field is cleared on
+   every resubmission).
+4. No change: name, search results summary, keywords, video (`https://www.youtube.com/watch?v=R7EQ3PDNhMs`), URLs,
+   plan, screenshots and logo.

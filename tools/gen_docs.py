@@ -16,7 +16,7 @@ BASE = "https://tinocallarisa-web.github.io/line-chart/"
 REPO = "https://github.com/tinocallarisa-web/line-chart"
 PRODUCT = "https://tcviz.com/product/line-chart/"
 VERSION = json.load(io.open(os.path.join(ROOT, "pbiviz.json"), encoding="utf-8"))["visual"]["version"]
-FECHA = "10 November 2026"
+FECHA = "25 November 2026"          # support.html (fecha de la documentación)
 VIDEO = "https://www.youtube.com/watch?v=R7EQ3PDNhMs"
 
 plantilla = io.open(os.path.join(WC, "privacy.html"), encoding="utf-8").read()
@@ -59,11 +59,12 @@ def page(title, sub, body, nav="", search=False):
 
 
 # ── Datos comunes ────────────────────────────────────────────────────────────
-# Límites de campos: capabilities.json → dataViewMappings[0].conditions. Filas: window de 30.000.
+# Límites de campos: capabilities.json → dataViewMappings[0].conditions. Filas: window de 30.000 y, desde la 1.0.1.0,
+# fetchMoreData hasta 10 rondas más (MAX_FETCH_ROUNDS en src/visual.ts). Selección: MAX_SELECT_IDS = 1.000 filas.
 
 FIELDS = [
     ("Axis", "Grouping", "Yes, one field", "A date gives a real time axis: points sit at their true distance and a missing period is a gap. A date hierarchy, text or numbers give a category axis with evenly spaced points. A hierarchy gives drilldown."),
-    ("Legend", "Grouping", "No, one field", "One line per value (region, brand, team) for every measure. Colours are set per legend value."),
+    ("Legend", "Grouping", "No, one field", "One line per value (region, brand, team) for every measure. Colours, line style, width and markers are set per legend value and stay when a filter hides part of the data."),
     ("Values", "Measure", "Yes, up to 6", "One line per measure, on the left axis."),
     ("Secondary values", "Measure", "No, up to 3", "Measures in other units (margin %, units) on a right-hand axis."),
     ("Plan", "Measure", "No, one field", "Drawn as a thin dashed line. With gap shading on, the area between actual and plan is green above and red below. After the last actual period it carries on, marked “Actual | Plan”."),
@@ -90,7 +91,8 @@ FREE_PRO = [
     ("Sort categories, source note under the chart", "✓", "✓"),
     ("Colour, line style, width and markers per series; conditional formatting (fx) on the series colour (without a legend) and on the target line", "✓", "✓"),
     ("Report theme and Classic templates; setup guide and start screen", "✓", "✓"),
-    ("Cross-filtering, multi-select, highlight, bookmarks, drilldown, context menu, report page tooltips, keyboard, high contrast", "✓", "✓"),
+    ("Cross-filtering by point or by whole series, multi-select, highlight, bookmarks, drilldown, context menu, report page tooltips", "✓", "✓"),
+    ("Keyboard navigation, screen-reader descriptions, high contrast and an Accessibility card (high contrast on demand, focus outline, minimum text size)", "✓", "✓"),
     ("Number format of the measure, dynamic format strings included; format on the canvas; 12 languages", "✓", "✓"),
     ("Variance in the end label (“+4.2% vs plan” or the absolute difference)", "—", "✓"),
     ("Six collection styles: Boardroom, Ledger, Editorial, Signal, Aurora, Terrace", "—", "✓"),
@@ -115,6 +117,7 @@ FORMAT = [
     ("Small multiples (Pro)", "Columns (0 = automatic); space between panels; title size, colour, bold and alignment; panel background and border; shared Y axis."),
     ("Source note", "Show; text; size; colour; alignment. A line under the chart for the data source."),
     ("Interactions", "Zoom; Y auto-fit when zoomed; zoom slider."),
+    ("Accessibility", "High contrast — Auto (follow Windows) or On, which draws the high-contrast look without a Windows contrast theme; focus outline colour and width (1–6 px) for keyboard focus; minimum text size (7–24 pt), a floor for every text in the chart: axes, legend, end labels, events, annotations, source note and notices."),
 ]
 
 USE_CASES = [
@@ -144,7 +147,17 @@ TROUBLE = [
      "<p>With <strong>First</strong>, Power BI sends one text per period. Use a measure that joins them: "
      "<code>Event text = CONCATENATEX ( VALUES ( Events[Event] ), Events[Event], \" · \" )</code>.</p>"),
     ("“Power BI sent only part of the data”",
-     "<p>Power BI sends up to 30,000 combinations of axis, small multiples panel and legend value. Above that, the visual draws what arrived and says so. Filter the page, use a coarser axis (week instead of day) or fewer legend values.</p>"),
+     "<p>Power BI sends the data in parts of 30,000 combinations of axis, small multiples panel and legend value. The visual asks for the rest automatically, in Power BI Desktop and in the service, up to ten more parts. "
+     "If the data is still incomplete after that, it draws what arrived and says so. Filter the page, use a coarser axis (week instead of day) or fewer legend values.</p>"),
+    ("“Too many rows to filter other visuals (N) — select fewer items”",
+     "<p>Selecting a series sends every row of that series to the rest of the page. Above 1,000 rows the selection is still shown in the chart, but other visuals are not filtered, and the notice says how many rows were selected. "
+     "Select fewer series or points, use a coarser axis (month instead of day), or filter with a slicer instead.</p>"),
+    ("A card next to the chart shows only one month of the selected series",
+     "<p>That was a fault of the first version when the axis or the legend made several columns: selecting a series filtered a single row. From this version a series selected in the legend, on the line or on its end label filters the whole series.</p>"),
+    ("A series went back to its automatic colour after a filter",
+     "<p>Fixed in this version: the colour, line style, width and markers of a series are kept by legend value, so a slicer that hides the first period of the series no longer resets them. Set the colour once more if it was lost with the first version.</p>"),
+    ("Power BI Desktop says the report has changes I did not make",
+     "<p>Reports made with the first version are updated once, the first time they are opened for editing with this version, to keep the series colours by legend value. Save the report: this update happens only once.</p>"),
     ("“N values without a date on the axis”",
      "<p>Some rows have a blank date. They cannot be placed on a time axis, so they are left out and counted in the note. Check the relationship between your fact table and the calendar.</p>"),
     ("Gap shading or the variance label does not appear",
@@ -174,7 +187,8 @@ FAQ = [
      "<p>No. The linear trend is a least-squares line from the first to the last point of the series, and it is not extended. The moving average looks back N periods inside each stretch of the line, so it does not cross a gap. For a forecast, use your own measure in <strong>Forecast</strong>.</p>"),
     ("How many fields and rows can it use?",
      "<p>Axis, Legend and Small multiples take one field each; Values up to 6 measures; Secondary values up to 3; Plan, Prior year, Forecast, Target line, Events and Annotations one each. "
-     "Power BI sends up to 30,000 combinations of axis, panel and legend value; when more exist, a note in the visual says the chart is incomplete. The limits are the same in the free version and in Pro.</p>"),
+     "Power BI sends the data in parts of 30,000 combinations of axis, panel and legend value; the visual asks for up to ten more parts, and if the data is still incomplete a note in the visual says so. "
+     "A selection can filter other visuals with up to 1,000 rows. The limits are the same in the free version and in Pro.</p>"),
     ("Why does the target line disappear with Show values as?",
      "<p>With <strong>Show values as</strong> (Pro) set to index, % change or running total, the target line is not drawn: an absolute target has no index. "
      "Index and % change use the first visible period of each series as the base, so the base moves when you zoom. If that base value is 0, there is nothing to divide by and the series is left empty.</p>"),
@@ -182,8 +196,11 @@ FAQ = [
      "<p>Yes: the number format of each measure from the model, <strong>dynamic format strings</strong> included, in the report's language. Show values as (Pro) uses its own format for index and %.</p>"),
     ("Does it follow my report theme?",
      "<p>Yes. <strong>Report theme</strong> is the default template: series colours and text come from your theme, like a native visual. Colours you set yourself always win.</p>"),
+    ("What does selecting a series filter?",
+     "<p>The whole series: every period of that legend value. Click its legend item, its line or its end label. With small multiples, a click in a panel selects the series in that panel only, and the legend selects it in every panel. "
+     "A click on a point filters that point only. Right-click on a series opens the Power BI context menu for the series; right-click on a point opens it for that point.</p>"),
     ("Do bookmarks keep my selection?",
-     "<p>Bookmarks keep the points you select and the filters of the page. Like every Power BI visual, they do not keep formatting.</p>"),
+     "<p>Bookmarks keep the series and points you select and the filters of the page. Like every Power BI visual, they do not keep formatting.</p>"),
     ("What is the “Pro preview” watermark?",
      "<p>While you edit a report without a licence, Pro features you turn on are drawn working on your own data under a watermark that names them, and Power BI shows its licence notice. "
      "Reading view shows the free chart. With small multiples, the preview draws the first 4 panels and reading view without a licence shows the first panel. "
@@ -236,6 +253,12 @@ plan and prior year with the gap shaded green or red, the plan carried on past t
 line, and an empty month drawn as a gap, never as a zero. <strong>Pro</strong> adds the context around the numbers: events and annotations
 on the timeline, the variance in the end label, small multiples, “Show values as” and six collection styles.</p>
 {video}
+<div class="card"><h3>What's new in {VERSION}</h3><ul>
+<li>New <strong>Accessibility</strong> card: high contrast on demand, focus outline colour and width, minimum text size.</li>
+<li>Selecting a series (legend, line or end label) filters other visuals by the whole series, not one month.</li>
+<li>Series colour, line style, width and markers stay when a filter hides part of the data.</li>
+<li>Large tables: the visual asks Power BI for the rest of the data, in Power BI Desktop too.</li>
+</ul><p><a href="changelog.html">Full changelog</a></p></div>
 <h2 id="quickstart">Quick Start</h2>
 <div class="card">
 <ol style="padding-left:20px;font-size:14px;color:var(--t2)">
@@ -278,8 +301,8 @@ plan (or forecast) continues. A break in a line is a period without data, not a 
 
 <h2 id="fields">Field Wells</h2>
 {table(["Field", "Kind", "Required / limit", "What it does"], [(f"<strong>{a}</strong>", b, c, d) for a, b, c, d in FIELDS])}
-<p>Power BI sends up to 30,000 combinations of axis, small multiples panel and legend value. When there are more, a note in the visual
-says the chart is incomplete. The limits are the same in the free version and in Pro.</p>
+<p>Power BI sends the data in parts of 30,000 combinations of axis, small multiples panel and legend value; the visual asks for up to ten
+more parts. If the data is still incomplete, a note in the visual says so. The limits are the same in the free version and in Pro.</p>
 
 <h2 id="freepro">Free and Pro</h2>
 {table(["Capability", "Free", "Pro"], FREE_PRO)}
@@ -305,11 +328,13 @@ names it. Reading view shows the free chart. Pro is sold per user on Microsoft A
 <h2 id="interaction">Selection, zoom and interaction</h2>
 <div class="card">
 <ul>
-<li>Click a point to filter the rest of the page; with a Legend field, click a legend item to select the whole series. Ctrl/Cmd + click adds; click again or click the background to clear.</li>
+<li>Click a point to filter the rest of the page by that point. With a Legend field, click a legend item, a line or its end label to select the whole series: other visuals are filtered by every period of it. Ctrl/Cmd + click adds; click again or click the background to clear.</li>
+<li>With small multiples, a click in a panel selects the series in that panel; the legend selects it in every panel.</li>
+<li>A selection of more than 1,000 rows is shown in the chart only, with the notice “Too many rows to filter other visuals (N) — select fewer items”.</li>
 <li>Highlight: when another visual filters this one, the highlighted values are drawn over a faded line.</li>
 <li>Tooltip with a crosshair; report page tooltips are supported. At a period with an event, the tooltip shows its full text.</li>
 <li>Zoom: Ctrl/Cmd + mouse wheel, or + and − with the chart focused; drag the optional zoom slider under the axis. Esc or <em>Reset zoom</em> goes back. The Y axis fits the zoomed range unless you turn that off.</li>
-<li>Bookmarks restore the selection. Right-click opens the Power BI context menu. A hierarchy in Axis gives drilldown.</li>
+<li>Bookmarks restore the selection. Right-click opens the Power BI context menu: on a series, for the whole series; on a point, for that point. A hierarchy in Axis gives drilldown.</li>
 <li>When the report author turns interactions off, clicks do not filter and zoom is off.</li>
 </ul>
 </div>
@@ -319,7 +344,9 @@ names it. Reading view shows the free chart. Pro is sold per user on Microsoft A
 <ul>
 <li>Keyboard: Tab into the visual; left and right arrows move along the axis, up and down between series; Home/End and PageUp/PageDown jump; Enter or Space selects; Esc clears (or resets the zoom); the context-menu key or Shift + F10 opens the menu. With small multiples, Shift + left/right moves between panels.</li>
 <li>Each point is announced to screen readers with its series, date and value; the chart describes how many series and points it has.</li>
-<li>High contrast: the visual uses the colours of the Windows contrast theme and tells series apart by line pattern and marker shape.</li>
+<li>High contrast: the visual uses the colours of the Windows contrast theme and tells series apart by line pattern and marker shape. In <em>Accessibility → High contrast</em>, <strong>On</strong> draws that look without a Windows contrast theme; <strong>Auto</strong> follows Windows.</li>
+<li>Focus outline: colour and width of the outline around the chart, the zoom button and the focused point when you move with the keyboard (<em>Accessibility</em> card).</li>
+<li>Minimum text size: a floor for every text in the chart — axes, legend, end labels, events, annotations, source note and notices — so no setting or small size makes text unreadable.</li>
 <li>The layout adapts to the size of the visual: in small sizes labels, legend and axes give way, down to a sparkline.</li>
 </ul>
 </div>

@@ -2,12 +2,14 @@
 
 All notable changes to Line Chart by TCViz. Power BI four-part version numbers.
 
-## 1.0.1.0 — 2026-11-24
+## 1.0.1.0 — 2026-11-25
 
 - New Accessibility card at the end of the Format pane: High contrast (Auto, following Windows, or On to force the high-contrast look without a Windows theme), Focus outline color and width for keyboard focus, and Minimum text size, a floor for every text in the chart (axes, legend, end labels, events, annotations, source note and notices).
-- Large tables: when Power BI sends the data in parts (over 30,000 rows), the chart now asks for the rest, in Power BI Desktop too, up to 330,000 rows (eleven parts). The "only part of the data" notice stays only if the data is still incomplete after that.
-- Fix: selecting a series (legend, line or end label) now filters other visuals by the whole series. Before, with a legend, a card next to the chart showed only one period of the series. With small multiples, a click in a panel filters the series in that panel and the legend filters it in every panel. Over 1,000 rows the selection is shown in the chart only, with a notice.
-- Fix: a colour, line style or width chosen for a legend value now stays when a filter or slicer removes part of the data (for example a Year slicer without the first year). Before, the series went back to its automatic colour.
+- Large tables: when Power BI sends the data in parts (over 30,000 rows), the chart now asks for the rest, in Power BI Desktop too, up to ten more parts. The "only part of the data" notice stays only if the data is still incomplete after that.
+- Fix: selecting a series (legend item, line or end label) now filters other visuals by the whole series. Before, when the axis or the legend made several columns, a card next to the chart showed a single month of the series. End labels can now be clicked to select their series. With small multiples, a click in a panel selects the series in that panel and the legend selects it in every panel.
+- A selection of more than 1,000 rows is shown in the chart only, with the notice "Too many rows to filter other visuals (N) — select fewer items"; select fewer items to filter the rest of the page.
+- Right-click on a series opens the Power BI context menu for the series, without the include and exclude options of a single month; right-click on a point opens it for that point.
+- Fix: a colour, line style, width or markers chosen for a series now stay when a filter or slicer removes part of the data (for example a Year slicer without the first year). Before, the series went back to its automatic look. Reports made with 1.0.0.0 are updated the first time they are opened for editing, so Power BI Desktop may mark the report as changed once.
 
 ## 1.0.0.0 — 2026-11-10
 

@@ -1,45 +1,39 @@
-Line Chart by TCViz 1.0.0.0 - GUID lineChartTCVizD8CCBAB58761478B9C59A5FA700EC503
+Line Chart by TCViz 1.0.1.0 (update of 1.0.0.0) - GUID lineChartTCVizD8CCBAB58761478B9C59A5FA700EC503
 
-SOURCE CODE
-https://github.com/tinocallarisa-web/line-chart, branch "certification". Public, no credentials.
+SOURCE: https://github.com/tinocallarisa-web/line-chart, branch "certification". Public.
 
-SAMPLE REPORT: LineChart_sample.pbix, 6 pages
-1. Actual vs plan: date axis, Plan with gap shading (green above, red below, split where
-the lines cross), plan dashed after the last actual month, "Actual | Plan" mark.
-2. Regions and margin: Legend = Region, margin on the secondary axis, end labels.
-3. Small multiples (Pro): one panel per region.
-4. Events and annotations (Pro): vertical event lines and notes on the line.
-5. Daily zoom and trend: Ctrl + mouse wheel or +/- keys, Esc resets; trend, peaks.
-6. Hints & tips.
+WHAT CHANGED IN 1.0.1.0
+- Accessibility card (end of Format pane): High contrast Auto/On, focus outline color
+and width, minimum text size.
+- fetchMoreData when Power BI marks a segment, Desktop included, up to 10 more rounds;
+one started/finished pair per update().
+- Selecting a series (legend, line or end label) sends the identities of ALL its rows.
+1.0.0.0 filtered a single row (one month) when the axis/legend made several columns.
+- Over 1,000 rows, select() is not called: the selection is shown in the visual only,
+with "Too many rows to filter other visuals (N) - select fewer items".
+- Context menu on a series: no data point; on a point: its row.
+- Per-series color/line style/width/markers kept by legend value (hidden object written
+by one persistProperties per change while editing, never in selection callbacks).
+Reports from 1.0.0.0 migrate once when opened in edit mode.
 
-TESTING PRO - NO KEY NEEDED
-Pro is granted by the AppSource plan through IVisualLicenseManager; no activation key
-exists. In EDIT mode without a licence, each Pro feature (collection styles, variance
-label, small multiples, events, annotations, show values as) is drawn WORKING under a
-"Pro preview" watermark that names it, with Power BI's licence notice. Intentional.
-Reading view shows the free chart (small multiples: first panel and a note). Without
-licence information (not signed in to Power BI Desktop): free chart, no watermark.
+HOW TO TEST SERIES SELECTION (LineChart_sample.pbix, page 2, Legend = Region)
+1. Add a Card with Sum of the same measure next to the chart.
+2. Click a legend item, the line or its end label: the card shows the total of the whole
+series, not one month. Ctrl+click adds a series; click the background to clear.
+3. Click a point: the card shows that point only. Right-click a series and a point.
+4. Small multiples (page 3): a click in a panel selects the series in that panel; the
+legend selects it in every panel.
+5. Limit: put a daily date on Axis with several years, then select several series until
+the selection passes 1,000 rows: the notice appears and the card is not filtered.
 
-WHAT TO CHECK
-- Empty visual: start screen with 3 steps; resize it.
-- Click a point: other visuals filter; Ctrl+click adds; click again clears. Bookmark,
-clear, apply: the selection comes back. Right-click: context menu.
-- Keyboard: arrows move between points and series, Enter selects, Esc clears.
-- High contrast: series differ by dash and marker shape.
-- Format mode: click a line, an end label, an axis or the legend.
+TESTING PRO - NO KEY: Pro comes from the AppSource plan via IVisualLicenseManager. In
+edit mode without licence, Pro features are drawn under a "Pro preview" watermark with
+Power BI's licence notice. Reading view shows the free chart.
 
-SETUP GUIDE AND LINKS
-The setup guide's buttons call persistProperties on a user click only, never in the
-selection callback. Start screen links (Guide, Video, Product page) open only on click
-or Enter, through host.launchUrl.
+ALSO CHECK: keyboard (arrows, Enter, Esc), bookmarks restore the selection, Windows high
+contrast and Accessibility > High contrast = On, Minimum text size.
 
-ROWS: categorical mapping, window of 30,000 rows; if Power BI sends only part, a note
-in the visual says so.
-
-PRIVACY: privileges []. No network, telemetry, browser storage or innerHTML. 12 languages.
-
-Rendering events: one started/finished pair per update(); licence, hover, selection and
-zoom repaints do not call update(). ESLint 0 errors.
+PRIVACY: privileges []. No network, telemetry, browser storage or innerHTML. ESLint 0 errors.
 
 Video: https://www.youtube.com/watch?v=R7EQ3PDNhMs
 Support: https://tinocallarisa-web.github.io/line-chart/support.html

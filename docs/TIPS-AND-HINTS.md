@@ -1,4 +1,4 @@
-# Line Chart by TCViz — Tips & Hints (1.0.0.0)
+# Line Chart by TCViz — Tips & Hints (1.0.1.0)
 
 A line chart for business time series that answers "are we on plan?": actual against plan and prior year with the gap
 shaded, the plan carried on past the last actual month, the last value at the end of every line, and an empty month
@@ -29,8 +29,9 @@ returns it (`+ 0`, `COALESCE(…, 0)`). Return BLANK() and the month becomes a g
 | Small multiples (Pro) | 1 | One chart per value; shared or separate Y axis. |
 | Tooltips | several | Extra measures; report page tooltips work too. |
 
-Power BI sends up to 30,000 combinations of axis, panel and legend value. Above that the visual draws what arrived and
-says so. The limits are the same in the free version and in Pro.
+Power BI sends the data in parts of 30,000 combinations of axis, panel and legend value; the visual asks for up to ten
+more parts. If the data is still incomplete, it draws what arrived and says so. The limits are the same in the free
+version and in Pro.
 
 ## Reading it
 
@@ -51,6 +52,19 @@ Two events in the same period? Use a measure instead:
 `Event text = CONCATENATEX ( VALUES ( Events[Event] ), Events[Event], " · " )`
 
 If the visual says "Events expects text: set the field to First", the column is being summarised as Count.
+
+## Selecting and filtering
+
+- Click a legend item, a line or its end label to select the whole series: other visuals are filtered by every period
+  of it. Click a point to filter that point only. Ctrl/Cmd + click adds.
+- Quick check: put a card with the sum of the same measure next to the chart and select a series. The card shows the
+  total of that series, not one month.
+- Small multiples: a click in a panel selects the series in that panel; the legend selects it in every panel.
+- Above 1,000 rows the selection is shown in the chart only, with "Too many rows to filter other visuals (N)". Select
+  fewer items, use a coarser axis or filter with a slicer.
+- Right-click on a series opens the context menu for the series; on a point, for that point.
+- Series colours, line styles, widths and markers are kept by legend value, so a slicer that hides the first year does
+  not reset them.
 
 ## Zoom
 
@@ -83,6 +97,14 @@ If the visual says "Events expects text: set the field to First", the column is 
 
 Without a licence, a Pro feature you turn on while editing is drawn working under a "Pro preview" watermark; reading
 view shows the free chart. Licences are per user: everyone who should see the Pro features needs one.
+
+## Accessibility card
+
+- High contrast: Auto follows Windows; On draws the high-contrast look without a Windows contrast theme, useful to
+  check a report before sharing it.
+- Focus outline colour and width: the outline you see when you move through the chart with the keyboard.
+- Minimum text size: a floor for every text in the chart, so a small visual or a small setting never makes text
+  unreadable.
 
 ## Keyboard
 
