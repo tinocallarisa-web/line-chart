@@ -265,6 +265,10 @@ export class Visual implements IVisual {
     private panePrev = new Map<string, { sig: string; obj: string }>();
     private stylePending: string | null = null;
     private stylePersist: powerbi.VisualObjectInstancesToPersist | null = null;
+    private stylePersistCount = 0;
+    private styleDataFp = "";
+    /** Diagnóstico del mapa, solo con TEST_STAMP (builds de prueba). */
+    private styleDiag = "";
     private pendingRestore: ISelectionId[] | null = null;
     private fmtCache = new Map<string, valueFormatter.IValueFormatter>();
     /**
@@ -896,6 +900,10 @@ export class Visual implements IVisual {
         if (TEST_STAMP && W >= 200) {
             this.svg.append("text").attr("x", W - 4).attr("y", noteH ? 10 : H - 3).attr("text-anchor", "end").style("font-size", this.fz(9) + "px")
                 .attr("fill", this.hc ? this.hcFg : "#A19F9D").text("[" + TEST_STAMP + "]");
+            if (this.styleDiag) {
+                this.svg.append("text").attr("class", "lc-diag").attr("x", 4).attr("y", noteH ? 22 : H - 14).style("font-size", this.fz(9) + "px")
+                    .attr("fill", this.hc ? this.hcFg : "#A19F9D").text(this.styleDiag);
+            }
         }
         this.activate(this.panels[0]);
         this.paintState();
@@ -912,24 +920,32 @@ export class Visual implements IVisual {
     // ── Estilo por serie con leyenda: mapa persistente (seriesStyles.map) ────
 
     /**
-     * Calcula el mapa efectivo de este update a partir del guardado y de los objects dataColors de las filas. Reglas:
-     *  - sin entrada: se adopta la primera fila con estilo (informes anteriores a la 1.0.1 y primer cambio);
-     *  - con entrada y su fila visible: manda esa fila (un cambio o un «restablecer» en el panel se ven ahí);
-     *  - con entrada y su fila filtrada: se conserva; solo si el usuario cambia la fila a la que apunta el panel (la
-     *    primera visible) se adopta, fusionado con lo guardado, y se escribe entero en esa fila, que pasa a mandar.
-     * Los objetos viejos de otras filas nunca se adoptan: al quitar el filtro no aparecen dos colores.
-     * Solo deriva: lo que haya que guardar queda en stylePersist y lo envía flushSeriesStyles (editando).
+     * Calcula el mapa efectivo de este update. El MAPA manda siempre en el dibujo, sea cual sea la fila visible; las
+     * filas solo sirven para detectar un cambio NUEVO del usuario en el panel:
+     *  - el panel apunta a la fila de la entrada (k) si está visible y, si no, a la primera fila visible de la serie;
+     *  - un cambio es una diferencia, entre dos updates seguidos CON LOS MISMOS DATOS, en los objects de ESA fila (misma
+     *    firma): se aplica
+     *    propiedad a propiedad (lo que aparece o cambia se pone; lo que desaparece, «restablecer», se quita);
+     *  - nunca se adopta el contenido de una fila porque sí (objetos viejos de .42, de otra fila o reescritos por el
+     *    host con el valor mostrado): solo su cambio. Así un filtro no cambia el color ni aparecen dos colores;
+     *  - solo en el primer update de la sesión y sin entrada guardada (informes de la 1.0.0) se toma la primera fila
+     *    con estilo, como hacía la 1.0.0.
+     * No escribe en ninguna fila: solo seriesStyles.map, que envía flushSeriesStyles (editando).
      */
     private syncSeriesStyles(dv: DataView | null): void {
         this.stylePersist = null;
         this.paneRows.clear();
+        this.styleDiag = "";
         const cats = dv?.categorical?.categories ?? [];
         const lc = cats.find(c => !!c.source?.roles?.legend);
         const txt = String(((dv?.metadata?.objects as any)?.seriesStyles?.map) ?? "");
         let saved: Record<string, SeriesStyle> = {};
         try { const o = txt ? JSON.parse(txt) : {}; if (o && typeof o === "object" && !Array.isArray(o)) saved = o; } catch { saved = {}; }
         if (this.stylePending !== null && this.stylePending === txt) this.stylePending = null;
-        if (!lc) { this.styleMap = new Map(Object.entries(saved)); return; }
+        // Base: lo guardado y, si hay un guardado en camino que aún no ha vuelto, ese (para no perder un cambio).
+        let base = saved;
+        if (this.stylePending !== null) { try { base = JSON.parse(this.stylePending); } catch { base = saved; } }
+        if (!lc) { this.styleMap = new Map(Object.entries(base)); return; }
         const N = lc.values?.length ?? 0;
         const val = (c: powerbi.DataViewCategoryColumn, r: number) => { const v = c.values[r]; return v instanceof Date ? v.toISOString() : (v ?? null); };
         const sig = (r: number) => JSON.stringify(cats.map(c => val(c, r)));
@@ -940,9 +956,9 @@ export class Visual implements IVisual {
             if (!Array.isArray(parts) || parts.length !== cats.length) return undefined;
             return rows.find(r => cats.every((c, i) => val(c, r) === parts[i]));
         };
-        const pick = (r: number): Omit<SeriesStyle, "k"> => {
+        const pick = (r: number): Record<string, string | number> => {
             const d = (lc.objects?.[r] as any)?.dataColors;
-            const o: Omit<SeriesStyle, "k"> = {};
+            const o: Record<string, string | number> = {};
             if (!d) return o;
             const f = d.fill?.solid?.color;
             if (typeof f === "string" && f) o.fill = f;
@@ -952,61 +968,64 @@ export class Visual implements IVisual {
             if (typeof d.markers === "string" && d.markers) o.markers = d.markers;
             return o;
         };
-        const props = (e: SeriesStyle): Omit<SeriesStyle, "k"> => { const o = { ...e }; delete (o as any).k; return o; };
-        const same = (a: object, b: object) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
-        const empty = (o: object) => !Object.keys(o).length;
         const byLeg = new Map<string, number[]>();
         for (let r = 0; r < N; r++) {
             const lg = String(lc.values[r] ?? "\u0000");
             const a = byLeg.get(lg);
             if (a) a.push(r); else byLeg.set(lg, [r]);
         }
-        const next: Record<string, SeriesStyle> = { ...saved };
+        // Solo con los MISMOS datos que el update anterior (un cambio de formato no cambia las filas): tras un filtro o un
+        // bloque de fetchMoreData los objects pueden llegar en otro update y su ausencia no es un «restablecer».
+        const fp = N + "␟" + (N ? sig(0) + "␟" + sig(N - 1) : "");
+        const sameData = fp === this.styleDataFp;
+        this.styleDataFp = fp;
+        const next: Record<string, SeriesStyle> = { ...base };
         let changed = false;
-        const writes: { row: number; o: Omit<SeriesStyle, "k"> }[] = [];
         for (const [lg, rows] of byLeg) {
-            const e = saved[lg];
-            let pane = rows[0];
-            if (!e) {
-                const r0 = rows.find(r => !empty(pick(r)));
-                if (r0 !== undefined) { next[lg] = { k: sig(r0), ...pick(r0) }; changed = true; pane = r0; }
-            } else {
-                const kr = typeof e.k === "string" ? findSig(rows, e.k) : undefined;
-                if (kr !== undefined) {
-                    pane = kr;
-                    const o = pick(kr);
-                    if (!same(o, props(e))) { next[lg] = { k: e.k, ...o }; changed = true; }
-                } else {
-                    const sp = sig(pane), o = pick(pane), prev = this.panePrev.get(lg);
-                    if (prev && prev.sig === sp && prev.obj !== JSON.stringify(o)) {
-                        const merged = { ...props(e), ...o };
-                        next[lg] = { k: sp, ...merged };
-                        changed = true;
-                        writes.push({ row: pane, o: merged });
-                    }
+            const e = base[lg];
+            const kr = e && typeof e.k === "string" ? findSig(rows, e.k) : undefined;
+            const pane = kr ?? rows[0];
+            const sp = sig(pane), o = pick(pane), prev = this.panePrev.get(lg);
+            if (prev && prev.sig === sp && sameData) {
+                const was: Record<string, string | number> = JSON.parse(prev.obj);
+                const diff = Array.from(new Set(Object.keys(was).concat(Object.keys(o)))).filter(p => was[p] !== o[p]);
+                if (diff.length) {
+                    const n: SeriesStyle = { ...(e ?? { k: sp }), k: sp };
+                    for (const p of diff) { if (o[p] === undefined) delete (n as any)[p]; else (n as any)[p] = o[p]; }
+                    // Si lo que aparece ya es lo del mapa (el host reescribe el valor mostrado, o los objects llegan
+                    // tarde), no hay cambio: ni se guarda ni se mueve la fila.
+                    const props = (x: SeriesStyle | undefined) => JSON.stringify(Object.entries(x ?? {}).filter(([q]) => q !== "k").sort());
+                    if (props(n) !== props(e)) { next[lg] = n; changed = true; }
                 }
+            } else if (!prev && !e) {
+                // Primer update de la sesión, sin entrada: informe de la 1.0.0 (color en la primera fila), como antes.
+                const r0 = rows.find(r => Object.keys(pick(r)).length > 0);
+                if (r0 !== undefined) { next[lg] = { k: sig(r0), ...pick(r0) }; changed = true; }
             }
-            this.paneRows.set(lg, pane);
-            this.panePrev.set(lg, { sig: sig(pane), obj: JSON.stringify(pick(pane)) });
+            const paneNow = next[lg] && typeof next[lg].k === "string" ? (findSig(rows, next[lg].k) ?? rows[0]) : rows[0];
+            this.paneRows.set(lg, paneNow);
+            this.panePrev.set(lg, { sig: sig(paneNow), obj: JSON.stringify(pick(paneNow)) });
         }
         this.styleMap = new Map(Object.entries(next));
+        if (TEST_STAMP) this.styleDiag = this.styleDiagText(byLeg, saved, next, sig, pick);
         if (!changed) return;
         const out = JSON.stringify(next);
         if (out === txt || out === this.stylePending) return;
-        const merge: powerbi.VisualObjectInstance[] = [{ objectName: "seriesStyles", selector: null, properties: { map: out } }];
-        for (const w of writes) {
-            let b = this.host.createSelectionIdBuilder();
-            for (const c of cats) b = b.withCategory(c, w.row);
-            const selector = (b.createSelectionId() as any).getSelector?.();
-            const pr: Record<string, powerbi.DataViewPropertyValue> = {};
-            if (w.o.fill) pr.fill = { solid: { color: w.o.fill } } as any;
-            if (w.o.lineStyle) pr.lineStyle = w.o.lineStyle;
-            if (w.o.lineWidth !== undefined) pr.lineWidth = w.o.lineWidth;
-            if (w.o.markers) pr.markers = w.o.markers;
-            if (selector && Object.keys(pr).length) merge.push({ objectName: "dataColors", selector, properties: pr });
-        }
-        this.stylePersist = { merge };
+        this.stylePersist = { merge: [{ objectName: "seriesStyles", selector: null, properties: { map: out } }] };
         this.stylePending = out;
+    }
+
+    /** Solo en las builds de prueba (TEST_STAMP): estado del mapa de la serie South (o la primera con entrada). */
+    private styleDiagText(byLeg: Map<string, number[]>, saved: Record<string, SeriesStyle>, next: Record<string, SeriesStyle>,
+        sig: (r: number) => string, pick: (r: number) => Record<string, string | number>): string {
+        const lg = byLeg.has("South") ? "South" : Object.keys(next).find(k => byLeg.has(k)) ?? byLeg.keys().next().value;
+        if (lg === undefined) return "";
+        const row = (k: string | undefined) => { try { const a = JSON.parse(k ?? "") as unknown[]; return a.filter(x => x !== lg).join("·"); } catch { return "—"; } };
+        const sv = saved[lg], nw = next[lg], pr = this.paneRows.get(lg);
+        return "map " + lg + ": saved " + (sv ? (sv.fill ?? "auto") + " @" + row(sv.k) : "none") +
+            " | now " + (nw ? (nw.fill ?? "auto") + " @" + row(nw.k) : "none") +
+            " | pane @" + (pr !== undefined ? row(sig(pr)) : "—") + " " + (pr !== undefined ? (pick(pr).fill ?? "—") : "") +
+            " | persist " + this.stylePersistCount + (this.editing ? " | edit" : " | read") + (this.stylePending ? " | pending" : "");
     }
 
     /**
@@ -1019,7 +1038,7 @@ export class Visual implements IVisual {
         this.stylePersist = null;
         if (!p) return;
         if (!this.editing) { this.stylePending = null; return; }
-        try { this.host.persistProperties(p); } catch (e) { this.stylePending = null; console.error("[LineChart]", e); }
+        try { this.host.persistProperties(p); this.stylePersistCount++; } catch (e) { this.stylePending = null; console.error("[LineChart]", e); }
     }
 
     // ── Mostrar valores como (Pro) ───────────────────────────────────────────
