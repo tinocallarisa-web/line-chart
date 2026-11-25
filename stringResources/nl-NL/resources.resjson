@@ -190,6 +190,8 @@
   "Prop_accessibility_focusColor": "Kleur van focuskader",
   "Prop_accessibility_focusWidth": "Breedte van focuskader",
   "Prop_accessibility_minTextSize": "Minimale tekstgrootte",
+  "Obj_seriesStyles": "Reeksstijlen",
+  "Prop_seriesStyles_map": "Geheugen voor reeksstijlen",
   "Obj_axes": "Assen",
   "Grp_xAxis": "X-as",
   "Grp_yAxis": "Y-as",

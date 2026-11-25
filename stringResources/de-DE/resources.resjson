@@ -190,6 +190,8 @@
   "Prop_accessibility_focusColor": "Farbe der Fokusumrandung",
   "Prop_accessibility_focusWidth": "Breite der Fokusumrandung",
   "Prop_accessibility_minTextSize": "Minimale Textgröße",
+  "Obj_seriesStyles": "Reihenstile",
+  "Prop_seriesStyles_map": "Speicher für Reihenstile",
   "Obj_axes": "Achsen",
   "Grp_xAxis": "X-Achse",
   "Grp_yAxis": "Y-Achse",

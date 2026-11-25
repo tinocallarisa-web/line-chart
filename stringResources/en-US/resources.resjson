@@ -190,6 +190,8 @@
   "Prop_accessibility_focusColor": "Focus outline color",
   "Prop_accessibility_focusWidth": "Focus outline width",
   "Prop_accessibility_minTextSize": "Minimum text size",
+  "Obj_seriesStyles": "Series styles",
+  "Prop_seriesStyles_map": "Series style memory",
   "Obj_axes": "Axes",
   "Grp_xAxis": "X axis",
   "Grp_yAxis": "Y axis",

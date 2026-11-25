@@ -190,6 +190,8 @@
   "Prop_accessibility_focusColor": "フォーカス枠の色",
   "Prop_accessibility_focusWidth": "フォーカス枠の太さ",
   "Prop_accessibility_minTextSize": "最小文字サイズ",
+  "Obj_seriesStyles": "系列のスタイル",
+  "Prop_seriesStyles_map": "系列のスタイルの記憶",
   "Obj_axes": "軸",
   "Grp_xAxis": "X 軸",
   "Grp_yAxis": "Y 軸",

@@ -1310,6 +1310,19 @@
           }
         }
       }
+    },
+    "seriesStyles": {
+      "displayName": "Series styles",
+      "displayNameKey": "Obj_seriesStyles",
+      "properties": {
+        "map": {
+          "displayName": "Series style memory",
+          "displayNameKey": "Prop_seriesStyles_map",
+          "type": {
+            "text": true
+          }
+        }
+      }
     }
   },
   "dataViewMappings": [

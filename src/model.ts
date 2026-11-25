@@ -67,6 +67,13 @@ export interface Series {
 
 export interface SeriesStroke { style: string | null; width: number | null; markers: string | null; }
 
+/**
+ * Estilo guardado de una serie con leyenda (seriesStyles.map, 1.0.1.0), por valor de leyenda en bruto
+ * (String(valor ?? "\u0000")). k = firma de la fila que lleva el objeto dataColors autoritativo. Una entrada sin
+ * propiedades es «por defecto» (tras restablecer): no se vuelve a mirar ninguna fila.
+ */
+export interface SeriesStyle { k: string; fill?: string; lineStyle?: string; lineWidth?: number; markers?: string; }
+
 /** Línea de objetivo de un panel: un valor por clave del eje (deduplicado entre las marcas de la leyenda). */
 export interface TargetLine {
     name: string;
@@ -200,7 +207,8 @@ export function panelValues(dv: DataView): string[] {
  * compartan el eje X y cada marca tenga el mismo color en todos; las series solo toman las filas de su panel.
  * panel = undefined: el primero (sin licencia, o con el campo pero sin paneles).
  */
-export function buildModel(dv: DataView, blankLabel: string, panel?: string, sortMode: SortMode = "data"): Model | null {
+export function buildModel(dv: DataView, blankLabel: string, panel?: string, sortMode: SortMode = "data",
+    styles?: Map<string, SeriesStyle>): Model | null {
     const cat = dv && dv.categorical;
     if (!cat || !cat.categories || !cat.categories.length) return null;
     const cats = cat.categories;
@@ -303,12 +311,18 @@ export function buildModel(dv: DataView, blankLabel: string, panel?: string, sor
     const ordered = roleCols("values").concat(roleCols("secondaryValues"));
     let hasHighlights = false;
     const metaCols = dv.metadata?.columns ?? [];
+    // Con leyenda, el estilo sale del mapa guardado (sobrevive a filtros que quiten la fila del selector); sin entrada
+    // en el mapa (informes anteriores a la 1.0.1, lectura), de los objects de las filas como siempre.
     const legendColor = (li: number): string | null => {
+        const st = styles?.get(legends[li]);
+        if (st) return st.fill ?? null;
         if (!legendCol || !legendCol.objects) return null;
         for (let r = 0; r < N; r++) if (rowLeg[r] === li) { const c = colorOf(legendCol.objects[r]); if (c) return c; }
         return null;
     };
     const legendStroke = (li: number): SeriesStroke => {
+        const ss = styles?.get(legends[li]);
+        if (ss) return strokeOf({ dataColors: { lineStyle: ss.lineStyle, lineWidth: ss.lineWidth, markers: ss.markers } });
         if (!legendCol || !legendCol.objects) return NO_STROKE;
         for (let r = 0; r < N; r++) if (rowLeg[r] === li && legendCol.objects[r]) {
             const st = strokeOf(legendCol.objects[r]);

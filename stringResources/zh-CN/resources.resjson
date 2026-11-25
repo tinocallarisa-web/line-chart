@@ -190,6 +190,8 @@
   "Prop_accessibility_focusColor": "焦点轮廓颜色",
   "Prop_accessibility_focusWidth": "焦点轮廓宽度",
   "Prop_accessibility_minTextSize": "最小文本大小",
+  "Obj_seriesStyles": "系列样式",
+  "Prop_seriesStyles_map": "系列样式记忆",
   "Obj_axes": "轴",
   "Grp_xAxis": "X 轴",
   "Grp_yAxis": "Y 轴",

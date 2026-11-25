@@ -190,6 +190,8 @@
   "Prop_accessibility_focusColor": "Color del contorno de foco",
   "Prop_accessibility_focusWidth": "Grosor del contorno de foco",
   "Prop_accessibility_minTextSize": "Tamaño mínimo del texto",
+  "Obj_seriesStyles": "Estilos de las series",
+  "Prop_seriesStyles_map": "Memoria de estilos de las series",
   "Obj_axes": "Ejes",
   "Grp_xAxis": "Eje X",
   "Grp_yAxis": "Eje Y",

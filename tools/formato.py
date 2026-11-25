@@ -238,6 +238,13 @@ def generar():
             tp.append(spec)
         objs[name] = {"displayName": label, "displayNameKey": okey, "properties": cp}
         ts_objs[name] = {"name": name, "key": okey, "label": label, "props": tp}
+    # Memoria de estilos por serie con leyenda (1.0.1.0): oculta, fuera de OBJECTS y del panel; la escribe el visual con
+    # persistProperties (editando) para que el color y el trazo de una serie sobrevivan a un filtro que quite la fila
+    # del selector. Patrón visualState de Calendar.
+    objs["seriesStyles"] = {"displayName": "Series styles", "displayNameKey": "Obj_seriesStyles", "properties": {
+        "map": {"displayName": "Series style memory", "displayNameKey": "Prop_seriesStyles_map", "type": {"text": True}}}}
+    en["Obj_seriesStyles"] = "Series styles"
+    en["Prop_seriesStyles_map"] = "Series style memory"
     caps["objects"] = objs
     caps["supportsOnObjectFormatting"] = True
     caps["enablePointerEventsFormatMode"] = True
