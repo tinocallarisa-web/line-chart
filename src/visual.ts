@@ -58,6 +58,12 @@ const TEST_STAMP = ""; // TEST_STAMP_MARKER
  * escriba al crear el plan.
  */
 const PLAN_IDS = ["line-chart-pro"];
+/**
+ * Tope de identidades por selectionManager.select(): con miles, Power BI Desktop revienta (RangeError en
+ * SelectRefFinder.visitOr, un OR recursivo con una rama por identidad; Donut, Desktop 2.160, 25-11-2026). Por encima no
+ * se llama a select(): la selección se dibuja solo dentro del visual, con aviso.
+ */
+const MAX_SELECT_IDS = 1000;
 const STATE_ACTIVE = 1;
 const STATE_WARNING = 2;
 /** spIdentifier es el Service ID completo ("editor.oferta.plan"); se acepta también el Plan ID solo. */
@@ -232,8 +238,21 @@ export class Visual implements IVisual {
     private focusKey = -1;
     private focusSeries = 0;
     private hasFocus = false;
-    /** Selección propia: clave → id. "s␟<leyenda>" serie; "p␟<k>␟<leyenda>" punto. */
-    private selKeys = new Map<string, ISelectionId>();
+    /**
+     * Selección propia, por claves: "s␟<leyenda>" serie en todos los paneles (leyenda); "s␟<leyenda>␟<panel>" serie en
+     * un panel (clic en la línea o en la etiqueta final); "p␟<eje>␟<leyenda>[␟<panel>]" punto. Lo que se envía a Power BI
+     * son las identidades de TODAS las filas que cubren (rowsOf), nunca una por serie.
+     */
+    private selKeys = new Set<string>();
+    /** La última selección pasaba de MAX_SELECT_IDS: se ve solo aquí, con aviso. */
+    private localOnly = false;
+    private selN = 0;
+    private selNote: HTMLDivElement;
+    /** Por dataView: identidad de cada fila y filas de cada serie (todas, y por panel). */
+    private idCache = new Map<number, ISelectionId>();
+    private rowIndex: { byLeg: Map<string, number[]>; byLegPanel: Map<string, number[]> } | null = null;
+    private pointRowMap: Map<string, number> | null = null;
+    private blankLabel = "(Blank)";
     private pendingRestore: ISelectionId[] | null = null;
     private fmtCache = new Map<string, valueFormatter.IValueFormatter>();
     /**
@@ -268,6 +287,11 @@ export class Visual implements IVisual {
         this.live.className = "lc-live";
         this.live.setAttribute("aria-live", "polite");
         this.root.appendChild(this.live);
+        // Aviso de selección solo dentro del visual (más de MAX_SELECT_IDS filas).
+        this.selNote = document.createElement("div");
+        this.selNote.className = "lc-selnote";
+        this.selNote.style.display = "none";
+        this.root.appendChild(this.selNote);
         this.canvas = this.svg.append("g") as unknown as Sel<SVGGElement>;
         // Marca de la vista previa (como Pareto): texto blanco con sombra, dos líneas (el rótulo y QUÉ función la
         // enciende), sin capturar clics y fuera del lector de pantalla.
@@ -800,6 +824,7 @@ export class Visual implements IVisual {
         // Small multiples: con Pro, todos los paneles; en la vista previa, los 4 primeros. Sin licencia en lectura, el
         // PRIMER panel con un aviso (no la suma de los paneles: ver el informe del bloque 2). En un mosaico, uno.
         const blank = this.t("UI_Blank", "(Blank)");
+        this.blankLabel = blank;
         const smVals = dv ? panelValues(dv) : [];
         const room = W >= 220 && H >= 140;
         this.multi = smVals.length > 0 && room && this.previewOf("small multiples");
@@ -808,6 +833,10 @@ export class Visual implements IVisual {
             ? shown.map(v => buildModel(dv, blank, v, this.sortMode())).filter((m): m is Model => !!m)
             : [buildModel(dv, blank, undefined, this.sortMode())].filter((m): m is Model => !!m);
         if (!this.models.length) this.multi = false;
+        // Las filas (y sus identidades) son índices de este dataView.
+        this.idCache.clear();
+        this.rowIndex = null;
+        this.pointRowMap = null;
         this.model = this.models[0] ?? null;
         const m = this.model;
         this.zoomEff = m ? this.effectiveZoom(m) : null;
@@ -858,6 +887,7 @@ export class Visual implements IVisual {
         this.markSubSelectables();
         this.renderGuide(W, H);
         this.updateWatermark(W, H);
+        this.showLocalNote();
         if (this.focusKey >= m.keys.length) this.focusKey = m.keys.length - 1;
         if (this.hasFocus) this.onFocus();
     }
@@ -2278,6 +2308,15 @@ export class Visual implements IVisual {
             const px = this.x(this.model.keys[it.li].pos);
             const color = this.hc ? this.hcFg : (s.endLabels.seriesColor ? this.readable(it.s.color, String(s.endLabels.color)) : String(s.endLabels.color));
             const lg = g.append("g").attr("class", "lc-endlabel").attr("data-id", it.s.id);
+            // Clic en la etiqueta final: la serie en este panel, como un clic en su línea (con leyenda; sin ella, nada).
+            const em = this.model, es = it.s;
+            if (em.legendCol) {
+                lg.style("cursor", "pointer").on("click", (e: MouseEvent) => {
+                    e.stopPropagation();
+                    if (!this.canInteract) return;
+                    this.toggle(this.seriesKey(es, em, true), e.ctrlKey || e.metaKey);
+                });
+            }
             // Línea guía: del último punto a la etiqueta, si está desplazada o el punto no llega al final.
             if (Math.abs(it.y - it.want) > 1.5 || px < x0 - 2) {
                 lg.append("polyline").attr("points", `${px},${it.want} ${x0 + 3},${it.want} ${tx - 2},${it.y}`).attr("fill", "none")
@@ -2394,7 +2433,7 @@ export class Visual implements IVisual {
                         .on("click", (e: MouseEvent) => {
                             e.stopPropagation();
                             if (!this.canInteract) return;
-                            if (this.model.legendCol) this.toggle(this.seriesKey(ser), this.seriesId(ser), e.ctrlKey || e.metaKey);
+                            if (this.model.legendCol) this.toggle(this.seriesKey(ser), e.ctrlKey || e.metaKey);
                         });
                 }
                 x += it.w;
@@ -2522,13 +2561,13 @@ export class Visual implements IVisual {
         const multi = e.ctrlKey || e.metaKey;
         const m = this.model;
         if (h.d && (h.onPoint || !m.legendCol)) {
-            const id = this.pointId(h.k, h.d.s);
-            if (id) this.toggle(this.pointKey(h.k, h.d.s), id, multi);
+            if (h.d.s.rows[h.k] >= 0) this.toggle(this.pointKey(h.k, h.d.s), multi);
         } else if (h.d && m.legendCol) {
-            this.toggle(this.seriesKey(h.d.s), this.seriesId(h.d.s), multi);
+            // La línea es de este panel: la serie en este panel (con small multiples) o entera (sin ellos).
+            this.toggle(this.seriesKey(h.d.s, m, true), multi);
         } else {
             this.selKeys.clear();
-            this.selectionManager.clear().then(() => this.paintState());
+            this.pushSelection();
             this.paintState();
         }
     }
@@ -2539,7 +2578,9 @@ export class Visual implements IVisual {
         if (!this.canInteract || !this.model) return;
         const [px, py] = this.localXY(e);
         const h = this.hit(px, py);
-        const id = h.d ? (h.onPoint || !this.model.legendCol ? this.pointId(h.k, h.d.s) : this.seriesId(h.d.s)) : null;
+        // showContextMenu admite una identidad: la de un punto (una fila). Una serie cubre muchas filas: sin identidad de
+        // dato (como el fondo), para que «Incluir» / «Excluir» no actúen sobre una sola fila.
+        const id = h.d && (h.onPoint || !this.model.legendCol) ? this.pointId(h.k, h.d.s) : null;
         this.selectionManager.showContextMenu(id ?? ({} as ISelectionId), { x: e.clientX, y: e.clientY });
     }
 
@@ -2617,75 +2658,193 @@ export class Visual implements IVisual {
 
     // ── Selección ────────────────────────────────────────────────────────────
 
-    private seriesKey(s: Series): string { return "s␟" + (s.legend ?? ""); }
+    /**
+     * Clave de una serie: el valor de leyenda (todas sus medidas). inPanel: solo en el panel de m (clic en la línea o
+     * en la etiqueta final con small multiples); sin campo Small multiples es la serie entera.
+     */
+    private seriesKey(s: Series, m: Model = this.model, inPanel = false): string {
+        return "s␟" + (s.legend ?? "") + (inPanel && m.smCol ? "␟" + (m.smShown ?? "") : "");
+    }
     /** Clave de un punto: eje × leyenda, y el panel cuando se dibujan varios. */
     private pointKey(k: number, s: Series, m: Model = this.model): string {
         return "p␟" + m.keys[k].key + "␟" + (m.legendCol ? (s.legend ?? "") : "") + (this.multi ? "␟" + (m.smShown ?? "") : "");
     }
 
-    /** Serie = el valor de leyenda (filtra por esa columna, en todos los paneles). */
-    private seriesId(s: Series, m: Model = this.model): ISelectionId {
-        const row = s.rows.find(r => r >= 0);
-        return this.host.createSelectionIdBuilder().withCategory(m.legendCol, row).createSelectionId();
+    /**
+     * Identidad de una FILA del dataView: withCategory(col, fila) en cada columna de categories (eje, leyenda, small
+     * multiples). Con varias columnas, Power BI ya da a categories[k].identity[i] la identidad de la fila completa: una
+     * «identidad de serie» hecha con la primera fila filtraba solo esa fila (defecto de la build 1.0.1.37: South
+     * filtraba un mes, $236K de ~$15M). Por eso cada serie envía las identidades de TODAS sus filas (rowsOf).
+     */
+    private rowId(r: number): ISelectionId {
+        let id = this.idCache.get(r);
+        if (!id) {
+            const m = this.model;
+            let b = this.host.createSelectionIdBuilder();
+            for (const c of m.axisCols) b = b.withCategory(c, r);
+            if (m.legendCol) b = b.withCategory(m.legendCol, r);
+            if (m.smCol) b = b.withCategory(m.smCol, r);
+            id = b.createSelectionId();
+            this.idCache.set(r, id);
+        }
+        return id;
+    }
+
+    /** Punto = su fila (eje × leyenda × panel). Para el tooltip, el menú contextual y la selección. */
+    private pointId(k: number, s: Series): ISelectionId | null {
+        const row = s.rows[k];
+        return row < 0 ? null : this.rowId(row);
+    }
+
+    /** Filas del dataView por valor de leyenda (con el nombre que usa el modelo) y por leyenda × panel. */
+    private indexRows(): { byLeg: Map<string, number[]>; byLegPanel: Map<string, number[]> } {
+        if (this.rowIndex) return this.rowIndex;
+        const byLeg = new Map<string, number[]>(), byLegPanel = new Map<string, number[]>();
+        const m = this.model;
+        const lc = m?.legendCol, sc = m?.smCol;
+        const N = m?.axisCols[0]?.values?.length ?? 0;
+        const push = (map: Map<string, number[]>, k: string, r: number) => { const a = map.get(k); if (a) a.push(r); else map.set(k, [r]); };
+        if (lc) for (let r = 0; r < N; r++) {
+            const v = lc.values[r];
+            const lg = v === null || v === undefined ? this.blankLabel : String(v);
+            push(byLeg, lg, r);
+            if (sc) push(byLegPanel, lg + "␟" + String(sc.values[r] ?? ""), r);
+        }
+        this.rowIndex = { byLeg, byLegPanel };
+        return this.rowIndex;
+    }
+
+    /** Fila de cada punto dibujable (clave de pointKey), en todos los paneles dibujados. */
+    private pointRows(): Map<string, number> {
+        if (this.pointRowMap) return this.pointRowMap;
+        const map = new Map<string, number>();
+        for (const m of this.models) for (const s of m.series) for (let k = 0; k < m.keys.length; k++) {
+            if (s.rows[k] >= 0) map.set(this.pointKey(k, s, m), s.rows[k]);
+        }
+        this.pointRowMap = map;
+        return map;
     }
 
     /**
-     * Punto = eje × leyenda (× panel con small multiples dibujados). Sin leyenda, solo el eje: la identidad del valor
-     * del eje cubre TODAS las filas de esa fecha (regla filtros-todas-las-filas), también las de otros paneles cuando
-     * solo se ve uno.
+     * Filas que cubre una clave (regla filtros-todas-las-filas): una serie, todas las filas de su valor de leyenda (en
+     * todos los paneles, o en el suyo); un punto, su fila.
      */
-    private pointId(k: number, s: Series, m: Model = this.model): ISelectionId | null {
-        const row = s.rows[k];
-        if (row < 0) return null;
-        let b = this.host.createSelectionIdBuilder();
-        for (const c of m.axisCols) b = b.withCategory(c, row);
-        if (m.legendCol) b = b.withCategory(m.legendCol, row);
-        if (this.multi && m.smCol) b = b.withCategory(m.smCol, row);
-        return b.createSelectionId();
+    private rowsOf(key: string): number[] {
+        const p = key.split("␟");
+        if (p[0] === "s") {
+            const ix = this.indexRows();
+            return (p.length > 2 ? ix.byLegPanel.get(p[1] + "␟" + p[2]) : ix.byLeg.get(p[1])) ?? [];
+        }
+        if (p[0] === "p") {
+            const r = this.pointRows().get(key);
+            return r === undefined ? [] : [r];
+        }
+        return [];
+    }
+
+    /** Filas de la selección, sin repetir (la unión es exacta). Se cuentan antes de construir identidades. */
+    private selectedRows(): Set<number> {
+        const rows = new Set<number>();
+        for (const k of this.selKeys) for (const r of this.rowsOf(k)) rows.add(r);
+        return rows;
     }
 
     /** select(lista) no alterna: la selección se calcula aquí y se pasa entera (o clear si queda vacía). */
-    private toggle(key: string, id: ISelectionId, multi: boolean): void {
-        if (multi) { if (this.selKeys.has(key)) this.selKeys.delete(key); else this.selKeys.set(key, id); }
+    private toggle(key: string, multi: boolean): void {
+        if (multi) { if (this.selKeys.has(key)) this.selKeys.delete(key); else this.selKeys.add(key); }
         else if (this.selKeys.size === 1 && this.selKeys.has(key)) this.selKeys.clear();
-        else { this.selKeys.clear(); this.selKeys.set(key, id); }
-        if (this.selKeys.size) this.selectionManager.select(Array.from(this.selKeys.values()), false);
-        else this.selectionManager.clear();
+        else { this.selKeys.clear(); this.selKeys.add(key); }
+        this.pushSelection();
         this.paintState();
     }
 
-    /** Marcadores / selección externa: se casa por equals (getKey no coincide entre clic y marcador). Solo deriva. */
+    /**
+     * Envía la selección a Power BI: las identidades de todas sus filas. Por encima de MAX_SELECT_IDS no se llama a
+     * select() (Desktop revienta): se limpia la de fuera, la selección se dibuja solo aquí y un aviso lo dice (y la
+     * región viva lo lee). Nunca persistProperties.
+     */
+    private pushSelection(): void {
+        let n = 0;
+        try {
+            const rows = this.selKeys.size ? this.selectedRows() : new Set<number>();
+            n = rows.size;
+            this.localOnly = n > MAX_SELECT_IDS;
+            if (!n || this.localOnly) this.selectionManager.clear();
+            else this.selectionManager.select(Array.from(rows).map(r => this.rowId(r)), false)?.catch?.(() => { /* el host rechazó la selección */ });
+        } catch (e) {
+            console.error("[LineChart]", e);
+        }
+        this.showLocalNote(n);
+    }
+
+    private showLocalNote(n: number = this.selN): void {
+        this.selN = n;
+        const el = this.selNote;
+        if (!el) return;
+        if (!this.localOnly || !this.selKeys.size) {
+            if (el.textContent && this.live.textContent === el.textContent) this.live.textContent = "";
+            el.style.display = "none";
+            el.textContent = "";
+            return;
+        }
+        const fs = this.fz(10);
+        el.textContent = this.tf("UI_LocalSel", "Too many rows to filter other visuals ({0}) — select fewer items", this.int(n));
+        el.style.cssText = "position:absolute;left:6px;right:6px;bottom:4px;text-align:center;pointer-events:none;padding:2px 6px;" +
+            "box-sizing:border-box;line-height:1.3;border-radius:2px;font-family:inherit";
+        el.style.fontSize = Math.max(fs, this.minText) + "px";
+        el.style.color = this.hc ? this.hcFg : (this.look?.down ?? "#A4262C");
+        el.style.background = this.bgColor;
+        if (this.hc) el.style.border = "1px solid " + this.hcFg;
+        this.live.textContent = el.textContent;
+    }
+
+    /**
+     * Marcadores / selección externa (identidades de fila). Una serie está seleccionada si lo están TODAS sus filas (en
+     * todos los paneles; si no, en un panel); lo demás, punto a punto. Se casa por getKey y, si no coincide (marcadores),
+     * por equals. Solo deriva: nunca select() ni persistProperties.
+     */
     private restoreSelection(ids: ISelectionId[]): void {
         if (!this.models.length) { this.pendingRestore = ids; return; }
         this.pendingRestore = null;
         this.selKeys.clear();
-        if (!ids.length) return;
+        this.localOnly = false;
+        if (!ids.length) { this.showLocalNote(0); return; }
+        const keyOf = (x: ISelectionId): string | null => { try { return (x as any)?.getKey?.() ?? null; } catch { return null; } };
+        const keys = new Set(ids.map(keyOf).filter((k): k is string => k !== null));
         const eq = (a: ISelectionId, b: ISelectionId) => { try { return a.equals(b) || b.equals(a); } catch { return false; } };
-        const left = ids.slice();
-        for (const m of this.models) {
-            if (m.legendCol) for (const s of m.series) {
-                const id = this.seriesId(s, m);
-                if (left.some(x => eq(x, id))) this.selKeys.set(this.seriesKey(s), id);
+        const m0 = this.models[0];
+        const N = m0.axisCols[0]?.values?.length ?? 0;
+        // equals solo si cabe en un presupuesto razonable (con miles de filas y de identidades, por getKey).
+        const scan = ids.length * N <= 3e6;
+        const memo = new Map<number, boolean>();
+        const hit = (r: number): boolean => {
+            let v = memo.get(r);
+            if (v === undefined) {
+                const id = this.rowId(r);
+                const k = keyOf(id);
+                v = (k !== null && keys.has(k)) || (scan && ids.some(x => eq(x, id)));
+                memo.set(r, v);
+            }
+            return v;
+        };
+        const all = (rows: number[] | undefined) => !!rows && rows.length > 0 && rows.every(hit);
+        const covered = new Set<number>();
+        if (m0.legendCol) {
+            const ix = this.indexRows();
+            for (const [lg, rows] of ix.byLeg) if (all(rows)) { this.selKeys.add("s␟" + lg); rows.forEach(r => covered.add(r)); }
+            if (m0.smCol) for (const [lp, rows] of ix.byLegPanel) {
+                if (rows.every(r => covered.has(r)) || !all(rows)) continue;
+                this.selKeys.add("s␟" + lp);
+                rows.forEach(r => covered.add(r));
             }
         }
-        if (this.selKeys.size === ids.length) return;
-        for (const m of this.models) {
-            const firsts = m.legendCol ? m.series.filter((s, i, a) => a.findIndex(o => o.legend === s.legend) === i) : m.series.slice(0, 1);
-            for (const s of firsts) for (let k = 0; k < m.keys.length; k++) {
-                const id = this.pointId(k, s, m);
-                if (id && left.some(x => eq(x, id))) this.selKeys.set(this.pointKey(k, s, m), id);
-            }
-        }
+        if (covered.size >= ids.length) return;
+        for (const [key, r] of this.pointRows()) if (!covered.has(r) && hit(r)) this.selKeys.add(key);
     }
 
     private pruneSelection(): void {
-        if (!this.selKeys.size) return;
-        const valid = new Set<string>();
-        for (const m of this.models) for (const s of m.series) {
-            valid.add(this.seriesKey(s));
-            for (let k = 0; k < m.keys.length; k++) if (s.rows[k] >= 0) valid.add(this.pointKey(k, s, m));
-        }
-        for (const k of Array.from(this.selKeys.keys())) if (!valid.has(k)) this.selKeys.delete(k);
+        for (const k of Array.from(this.selKeys)) if (!this.rowsOf(k).length) this.selKeys.delete(k);
+        if (!this.selKeys.size) this.localOnly = false;
     }
 
     /** Opacidades y anillos en TODOS los paneles; deja activo el que lo estaba. */
@@ -2701,14 +2860,17 @@ export class Visual implements IVisual {
         if (!m || !this.L) return;
         const selSeries = new Set<string>();
         const selPoints: [number, Series][] = [];
-        for (const key of this.selKeys.keys()) {
+        let anySeries = false;
+        for (const key of this.selKeys) {
             const parts = key.split("␟");
-            if (parts[0] === "s") selSeries.add(parts[1]);
+            if (parts[0] !== "s") continue;
+            anySeries = true;
+            // "s␟<leyenda>": en todos los paneles; "s␟<leyenda>␟<panel>": solo en ese panel.
+            if (parts.length === 2 || (m.smCol && parts[2] === (m.smShown ?? ""))) selSeries.add(parts[1]);
         }
         for (const d of this.drawn) for (let k = 0; k < m.keys.length; k++) {
             if (d.s.values[k] !== null && this.selKeys.has(this.pointKey(k, d.s))) selPoints.push([k, d.s]);
         }
-        const anySeries = selSeries.size > 0;
         const anyPoint = selPoints.length > 0;
         this.canvas.selectAll<SVGGElement, unknown>(".lc-series, .lc-ref, .lc-band, .lc-endlabel, .lc-note").each((_d, i, nodes) => {
             const el = nodes[i];
@@ -2797,12 +2959,12 @@ export class Visual implements IVisual {
             case "ArrowDown": this.focusSeries = this.focusSeries + 1; break;
             case "Enter": case " ": {
                 const d = this.keyboardSeries(this.focusKey)[this.focusSeries];
-                if (d && this.canInteract) { const id = this.pointId(this.focusKey, d.s); if (id) this.toggle(this.pointKey(this.focusKey, d.s), id, e.ctrlKey || e.metaKey); }
+                if (d && this.canInteract && d.s.rows[this.focusKey] >= 0) this.toggle(this.pointKey(this.focusKey, d.s), e.ctrlKey || e.metaKey);
                 break;
             }
             case "Escape":
                 if (this.zoomEff) { this.setZoom(null); break; }
-                if (this.canInteract) { this.selKeys.clear(); this.selectionManager.clear(); this.paintState(); }
+                if (this.canInteract) { this.selKeys.clear(); this.pushSelection(); this.paintState(); }
                 break;
             case "+": case "=": case "-": case "_":
                 if (!this.zoomable) { handled = false; break; }

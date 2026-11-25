@@ -222,6 +222,7 @@
   "UI_AriaChart": "折れ線グラフ",
   "UI_AriaSummary": "{0} 系列、{1} 点。方向キーで点と系列を移動し、Enter で選択します。",
   "UI_Trend": "傾向",
+  "UI_LocalSel": "他のビジュアルをフィルターするには行が多すぎます ({0}) — 選択を減らしてください",
   "Landing_Tagline": "時系列を正直に: 実際の日付、見える欠損、各線の終端に最新値。",
   "Landing_TaglineShort": "実際の日付、見える欠損、最新値。",
   "Landing_Guide": "ガイド",

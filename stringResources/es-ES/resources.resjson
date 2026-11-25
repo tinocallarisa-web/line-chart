@@ -222,6 +222,7 @@
   "UI_AriaChart": "gráfico de líneas",
   "UI_AriaSummary": "{0} series en {1} puntos. Las flechas pasan de un punto o una serie a otra; Intro selecciona.",
   "UI_Trend": "Tendencia",
+  "UI_LocalSel": "Demasiadas filas para filtrar otros visuales ({0}): selecciona menos elementos",
   "Landing_Tagline": "Series temporales sin trampas: fechas reales, huecos visibles y el último valor al final de cada línea.",
   "Landing_TaglineShort": "Fechas reales, huecos visibles, último valor.",
   "Landing_Guide": "Guía",

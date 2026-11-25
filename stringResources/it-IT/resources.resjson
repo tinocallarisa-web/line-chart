@@ -222,6 +222,7 @@
   "UI_AriaChart": "grafico a linee",
   "UI_AriaSummary": "{0} serie su {1} punti. Le frecce spostano tra punti e serie, Invio seleziona.",
   "UI_Trend": "Tendenza",
+  "UI_LocalSel": "Troppe righe per filtrare gli altri oggetti visivi ({0}) — seleziona meno elementi",
   "Landing_Tagline": "Serie temporali oneste: date reali, vuoti visibili e l’ultimo valore alla fine di ogni linea.",
   "Landing_TaglineShort": "Date reali, vuoti visibili, ultimo valore.",
   "Landing_Guide": "Guida",

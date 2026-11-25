@@ -222,6 +222,7 @@
   "UI_AriaChart": "꺾은선형 차트",
   "UI_AriaSummary": "계열 {0}개, 점 {1}개. 화살표 키로 점과 계열 사이를 이동하고 Enter로 선택합니다.",
   "UI_Trend": "추세",
+  "UI_LocalSel": "다른 시각적 개체를 필터링하기에는 행이 너무 많습니다({0}). 항목을 더 적게 선택하세요.",
   "Landing_Tagline": "시계열을 정직하게: 실제 날짜, 보이는 공백, 선마다 끝에 마지막 값.",
   "Landing_TaglineShort": "실제 날짜, 보이는 공백, 마지막 값.",
   "Landing_Guide": "가이드",

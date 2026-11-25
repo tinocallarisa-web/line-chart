@@ -222,6 +222,7 @@
   "UI_AriaChart": "line chart",
   "UI_AriaSummary": "{0} series over {1} points. Arrow keys move between points and series, Enter selects.",
   "UI_Trend": "Trend",
+  "UI_LocalSel": "Too many rows to filter other visuals ({0}) — select fewer items",
   "Landing_Tagline": "Time series the honest way: real dates, visible gaps and the last value at the end of every line.",
   "Landing_TaglineShort": "Real dates, visible gaps, last value.",
   "Landing_Guide": "Guide",

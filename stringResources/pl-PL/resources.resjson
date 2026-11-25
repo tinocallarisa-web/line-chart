@@ -222,6 +222,7 @@
   "UI_AriaChart": "wykres liniowy",
   "UI_AriaSummary": "Serie: {0}, punkty: {1}. Strzałki przechodzą między punktami i seriami, Enter zaznacza.",
   "UI_Trend": "Trend",
+  "UI_LocalSel": "Za dużo wierszy, by filtrować inne wizualizacje ({0}) — zaznacz mniej elementów",
   "Landing_Tagline": "Szeregi czasowe uczciwie: prawdziwe daty, widoczne luki i ostatnia wartość na końcu każdej linii.",
   "Landing_TaglineShort": "Prawdziwe daty, widoczne luki, ostatnia wartość.",
   "Landing_Guide": "Przewodnik",

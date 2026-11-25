@@ -222,6 +222,7 @@
   "UI_AriaChart": "Liniendiagramm",
   "UI_AriaSummary": "{0} Reihen über {1} Punkte. Pfeiltasten wechseln zwischen Punkten und Reihen, Eingabe wählt aus.",
   "UI_Trend": "Trend",
+  "UI_LocalSel": "Zu viele Zeilen, um andere Visuals zu filtern ({0}) – wählen Sie weniger Elemente aus",
   "Landing_Tagline": "Zeitreihen ehrlich dargestellt: echte Datumswerte, sichtbare Lücken und der letzte Wert am Ende jeder Linie.",
   "Landing_TaglineShort": "Echte Daten, sichtbare Lücken, letzter Wert.",
   "Landing_Guide": "Anleitung",

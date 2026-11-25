@@ -222,6 +222,7 @@
   "UI_AriaChart": "lijndiagram",
   "UI_AriaSummary": "{0} reeksen over {1} punten. Pijltoetsen gaan naar punten en reeksen, Enter selecteert.",
   "UI_Trend": "Trend",
+  "UI_LocalSel": "Te veel rijen om andere visuals te filteren ({0}) — selecteer minder items",
   "Landing_Tagline": "Tijdreeksen eerlijk getoond: echte datums, zichtbare gaten en de laatste waarde aan het eind van elke lijn.",
   "Landing_TaglineShort": "Echte datums, zichtbare gaten, laatste waarde.",
   "Landing_Guide": "Handleiding",

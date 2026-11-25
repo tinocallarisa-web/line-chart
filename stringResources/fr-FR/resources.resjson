@@ -222,6 +222,7 @@
   "UI_AriaChart": "graphique en courbes",
   "UI_AriaSummary": "{0} séries sur {1} points. Les flèches passent d’un point ou d’une série à l’autre ; Entrée sélectionne.",
   "UI_Trend": "Tendance",
+  "UI_LocalSel": "Trop de lignes pour filtrer les autres visuels ({0}) — sélectionnez moins d’éléments",
   "Landing_Tagline": "Des séries temporelles honnêtes : vraies dates, trous visibles et dernière valeur au bout de chaque ligne.",
   "Landing_TaglineShort": "Vraies dates, trous visibles, dernière valeur.",
   "Landing_Guide": "Guide",

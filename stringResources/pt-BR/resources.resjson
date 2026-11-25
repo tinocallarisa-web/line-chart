@@ -222,6 +222,7 @@
   "UI_AriaChart": "gráfico de linhas",
   "UI_AriaSummary": "{0} séries em {1} pontos. As setas movem entre pontos e séries; Enter seleciona.",
   "UI_Trend": "Tendência",
+  "UI_LocalSel": "Demasiadas linhas para filtrar outros visuais ({0}) — selecione menos itens",
   "Landing_Tagline": "Séries temporais com honestidade: datas reais, lacunas visíveis e o último valor no fim de cada linha.",
   "Landing_TaglineShort": "Datas reais, lacunas visíveis, último valor.",
   "Landing_Guide": "Guia",

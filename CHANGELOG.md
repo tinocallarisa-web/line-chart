@@ -6,6 +6,7 @@ All notable changes to Line Chart by TCViz. Power BI four-part version numbers.
 
 - New Accessibility card at the end of the Format pane: High contrast (Auto, following Windows, or On to force the high-contrast look without a Windows theme), Focus outline color and width for keyboard focus, and Minimum text size, a floor for every text in the chart (axes, legend, end labels, events, annotations, source note and notices).
 - Large tables: when Power BI sends the data in parts (over 30,000 rows), the chart now asks for the rest, in Power BI Desktop too, up to 330,000 rows (eleven parts). The "only part of the data" notice stays only if the data is still incomplete after that.
+- Fix: selecting a series (legend, line or end label) now filters other visuals by the whole series. Before, with a legend, a card next to the chart showed only one period of the series. With small multiples, a click in a panel filters the series in that panel and the legend filters it in every panel. Over 1,000 rows the selection is shown in the chart only, with a notice.
 
 ## 1.0.0.0 — 2026-11-10
 
