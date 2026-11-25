@@ -165,7 +165,7 @@ def suma_filtrada(keys, base):
 
 STUB = r"""
 window.__store = { meta: {}, rows: {} };
-window.__storeMerge = (items) => { for (const it of items) {
+window.__storeMerge = (items) => { for (const it of items) { if (it.selector && window.__noRowPersist) continue;
    const tgt = it.selector ? (__store.rows[it.selector.data[0]] = __store.rows[it.selector.data[0]] || {}) : __store.meta;
    tgt[it.objectName] = Object.assign({}, tgt[it.objectName] || {}, it.properties); } };
 window.__rowKey = (cats, i) => cats.map(c => c.source.displayName + '=' + c.values[i]).join('|');
@@ -253,7 +253,8 @@ async def page(b, data, W=1400, H=620, locale="en-US", plan=PLAN, vm=0, store=No
     pg.on("pageerror", lambda e: errs.append(str(e)))
     await pg.set_content(f"<html><body style='margin:0;background:#fff'><div id='host' style='position:relative;width:{W}px;height:{H}px;overflow:hidden'></div></body></html>")
     await pg.add_style_tag(path=os.path.join(DROP, "visual.css"))
-    await pg.add_script_tag(content=f"window.__plan = {json.dumps(plan)}; window.__locale = {json.dumps(locale)};")
+    # LC_NOROW=1: variante de diagnóstico en la que el host ignora lo que el visual guarda con selector de fila.
+    await pg.add_script_tag(content=f"window.__plan = {json.dumps(plan)}; window.__locale = {json.dumps(locale)}; window.__noRowPersist = {json.dumps(os.environ.get('LC_NOROW') == '1')};")
     await pg.add_script_tag(content=STUB)
     await pg.add_script_tag(content=HELP)
     await pg.add_script_tag(path=os.path.join(DROP, "visual.js"))
@@ -270,6 +271,11 @@ async def upd(pg, data):
     W, H = pg._dims
     await pg.evaluate("""([dv, W, H, vm]) => { window.__base = dv; window.__cats = dv.categorical.categories;
         window.__again = () => __v.update({ dataViews: [__apply(window.__base)], viewport: { width: W, height: H }, type: 2, operationKind: 0, viewMode: vm, editMode: 0 });
+        // Variante (pg._sinobj): tras un cambio de datos (filtro), el primer update llega SIN los objects de las filas y
+        // el siguiente con ellos, como sospechamos de Desktop tras un segmentador.
+        const fpd = JSON.stringify(dv.categorical.categories.map(c => c.values)); const cambia = fpd !== window.__fpd; window.__fpd = fpd;
+        if (window.__sinObj && cambia) { const dv0 = __apply(window.__base); dv0.categorical.categories.forEach(c => { delete c.objects; });
+            __v.update({ dataViews: [dv0], viewport: { width: W, height: H }, type: 2, operationKind: 0, viewMode: vm, editMode: 0 }); }
         window.__again(); }""", [data, W, H, getattr(pg, "_vm", 0)])
     await pg.wait_for_timeout(60)
 
@@ -651,6 +657,100 @@ async def tanda_color(b):
     await pg.close()
 
 
+# Variante Desktop: al mirar el panel, el host reescribe en la fila del selector el valor que muestra el ColorPicker.
+PANE_LOOK = r"""(nombre) => { const fm = __v.getFormattingModel(); let hit = null;
+  const walk = o => { if (hit || !o || typeof o !== 'object') return; if (Array.isArray(o)) { o.forEach(walk); return; }
+    const d = o.control && o.control.properties && o.control.properties.descriptor;
+    if (d && d.objectName === 'dataColors' && d.propertyName === 'fill' && o.displayName === nombre) hit = o.control.properties;
+    Object.values(o).forEach(walk); };
+  walk(fm); const k = hit.descriptor.selector.data[0]; __store.rows[k] = __store.rows[k] || {};
+  __store.rows[k].dataColors = Object.assign({}, __store.rows[k].dataColors || {}, { fill: { solid: { color: hit.value.value } } });
+  window.__again(); return [k, hit.value.value]; }"""
+SOLO_MAPA = "() => (window.__persist || []).every(p => (p.merge || []).every(m => m.selector === null && m.objectName === 'seriesStyles'))"
+
+
+async def paso(pg, data, label, esperado, mirar=False):
+    await upd(pg, data)
+    await pg.wait_for_timeout(120)
+    if mirar:
+        await pg.evaluate(PANE_LOOK, "South")
+        await pg.wait_for_timeout(150)
+    sk = (await pg.evaluate(STROKE))[0]
+    diag = await pg.evaluate("() => (document.querySelector('.lc-diag') || {}).textContent || ''")
+    check(f"{label}: South {esperado}", sk == esperado, f"{sk} · {diag}")
+
+
+async def tanda_color_secuencias(b):
+    """25-11 (build .47, Tino): sin 2023 → bien; después sin 2024 → pierde el color; y sin 2024 directamente, en el mismo
+    informe, también. Se reproducen las secuencias sobre el mismo estado guardado, con y sin la variante de Desktop que
+    reescribe el objeto en la fila a la que apunta el panel al mirarlo."""
+    print("\nColor por serie: secuencias con el segmentador de Year (build .47)")
+    full, s23, s24 = dv_regiones(), sin_anio(dv_regiones(), 2023), sin_anio(dv_regiones(), 2024)
+    for mirar, sinobj in ((False, False), (True, False), (False, True), (True, True)):
+        v = (" (Desktop reescribe al mirar)" if mirar else "") + (" (primer update sin objects)" if sinobj else "")
+        pg = await page(b, full, vm=1)
+        if sinobj:
+            await pg.evaluate("() => { window.__sinObj = true; }")
+        await pg.evaluate(PANE_SET, ["South", "fill", "#FF0000"])
+        await pg.wait_for_timeout(150)
+        await paso(pg, full, f"S1{v} · color fijo", "#FF0000", mirar)
+        await paso(pg, s23, f"S1{v} · sin 2023", "#FF0000", mirar)
+        await paso(pg, full, f"S1{v} · todo", "#FF0000", mirar)
+        await paso(pg, s24, f"S1{v} · sin 2024", "#FF0000", mirar)
+        await paso(pg, s23, f"S1{v} · sin 2023 otra vez", "#FF0000", mirar)
+        await paso(pg, full, f"S1{v} · todo otra vez", "#FF0000", mirar)
+        mp = await pg.evaluate(MAPA)
+        check(f"S1{v}: el mapa guardado sigue #FF0000", mp and mp["South"].get("fill") == "#FF0000", str(mp))
+        check(f"S1{v}: el visual solo guarda el mapa (nunca escribe en filas)", await pg.evaluate(SOLO_MAPA))
+        np = await pg.evaluate(NPERSIST)
+        check(f"S1{v}: persist solo por cambios reales ({np})", np <= (4 if mirar else 1), str(np))
+        await sin_errores(pg, f"S1{v}")
+        store = await pg.evaluate("() => JSON.parse(JSON.stringify(__store))")
+        await pg.close()
+        # S2: mismo informe guardado, sesión nueva, sin 2024 directamente
+        pg = await page(b, s24, vm=1, store=store)
+        if sinobj:
+            await pg.evaluate("() => { window.__sinObj = true; }")
+        await pg.wait_for_timeout(120)
+        await paso(pg, s24, f"S2{v} · sesión nueva, sin 2024 directo", "#FF0000", mirar)
+        await paso(pg, s23, f"S2{v} · después sin 2023", "#FF0000", mirar)
+        await sin_errores(pg, f"S2{v}")
+        await pg.close()
+    # S3: informe recién creado con la 1.0.0 (sin mapa, color en Jan 2023): sin 2024 directo, editando y luego con mapa
+    legacy = {"meta": {}, "rows": {"Year=2023|Month=Jan|Region=South": {"dataColors": {"fill": {"solid": {"color": "#FF8800"}}}}}}
+    pg = await page(b, s24, vm=1, store=json.loads(json.dumps(legacy)))
+    await pg.wait_for_timeout(150)
+    await paso(pg, s24, "S3 · sin mapa, sin 2024 directo", "#FF8800")
+    mp = await pg.evaluate(MAPA)
+    check("S3: migrado al mapa (#FF8800)", mp and mp.get("South", {}).get("fill") == "#FF8800", str(mp))
+    await paso(pg, s23, "S3 · con mapa, sin 2023", "#FF8800", True)
+    store = await pg.evaluate("() => JSON.parse(JSON.stringify(__store))")
+    await pg.close()
+    pg = await page(b, s24, vm=0, store=store)
+    await paso(pg, s24, "S3 · lectura con mapa, sin 2024", "#FF8800")
+    check("S3 lectura: sin persist", await pg.evaluate(NPERSIST) == 0)
+    await pg.close()
+    # S4: objetos viejos de la .42 en otra fila (Jan 2024 verde) y mapa rojo: nunca se adoptan
+    stale = {"meta": {"seriesStyles": {"map": json.dumps({"South": {"k": json.dumps([2023, "Jan", "South"]), "fill": "#FF0000"}})}},
+             "rows": {"Year=2023|Month=Jan|Region=South": {"dataColors": {"fill": {"solid": {"color": "#FF0000"}}}},
+                      "Year=2024|Month=Jan|Region=South": {"dataColors": {"fill": {"solid": {"color": "#00AA00"}}}}}}
+    pg = await page(b, full, vm=1, store=stale)
+    await paso(pg, s23, "S4 · objeto viejo verde en Jan 2024, sin 2023", "#FF0000")
+    await paso(pg, s23, "S4 · y mirando el panel", "#FF0000", True)
+    await paso(pg, full, "S4 · todo", "#FF0000")
+    await paso(pg, s24, "S4 · sin 2024", "#FF0000", True)
+    # Y un cambio real sigue funcionando en cualquier estado del filtro
+    await upd(pg, s23)
+    await pg.evaluate(PANE_SET, ["South", "fill", "#0000FF"])
+    await pg.wait_for_timeout(150)
+    await paso(pg, s23, "S4 · cambio real con el filtro: azul", "#0000FF")
+    await paso(pg, s24, "S4 · azul también sin 2024", "#0000FF")
+    await paso(pg, full, "S4 · azul con todo", "#0000FF")
+    check("S4: el diagnóstico de prueba se ve (map South …)", "map South:" in await pg.evaluate("() => (document.querySelector('.lc-diag') || {}).textContent || ''"))
+    await sin_errores(pg, "S4")
+    await pg.close()
+
+
 def comprobar_capabilities():
     print("\ncapabilities.json")
     c = json.load(io.open(os.path.join(ROOT, "capabilities.json"), encoding="utf-8"))
@@ -667,6 +767,7 @@ async def main():
         await tanda_sm(b)
         await tanda_tope(b)
         await tanda_color(b)
+        await tanda_color_secuencias(b)
         await b.close()
     print("\nCaso | ids enviadas | filas filtradas | suma filtrada | esperado")
     for t in TABLA:
