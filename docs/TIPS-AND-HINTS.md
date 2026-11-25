@@ -55,15 +55,15 @@ If the visual says "Events expects text: set the field to First", the column is 
 
 ## Selecting and filtering
 
-- Click a legend item, a line or its end label to select the whole series: other visuals are filtered by every period
-  of it. Click a point to filter that point only. Ctrl/Cmd + click adds.
+- Click a point to filter by it. With a Legend field, click a legend item, a line or its end label to select the whole
+  series: other visuals are filtered by every period of it, up to 1,000 rows per selection. Ctrl/Cmd + click adds.
 - Quick check: put a card with the sum of the same measure next to the chart and select a series. The card shows the
   total of that series, not one month.
 - Small multiples: a click in a panel selects the series in that panel; the legend selects it in every panel.
 - Above 1,000 rows the selection is shown in the chart only, with "Too many rows to filter other visuals (N)". Select
   fewer items, use a coarser axis or filter with a slicer.
 - Right-click on a series opens the context menu for the series; on a point, for that point.
-- Series colours, line styles, widths and markers are kept by legend value, so a slicer that hides the first year does
+- Series colours, line styles, widths and markers (first 40 legend values) are kept by legend value, so a slicer that hides the first year does
   not reset them.
 
 ## Zoom
@@ -76,7 +76,7 @@ If the visual says "Events expects text: set the field to First", the column is 
 
 - Style template — Report theme (default), Classic, and the six collection styles (Pro). Your own settings win.
 - Lines — width, markers, missing values, smooth lines, Show values as (Pro); Colors: colour, line style, width and
-  markers per series, conditional formatting (fx) on the colour without a Legend. With Show values as on, the target
+  markers per series (first 40 legend values), conditional formatting (fx) on the colour without a Legend. With Show values as on, the target
   line is not drawn (an absolute target has no index), and a series whose base value is 0 is left empty.
 - End labels — name and value, value or name; maximum labels; series colour; variance vs plan or PY (Pro).
 - Plan, prior year and forecast — grey or series colour, show in legend, gap shading and its colours and opacity,

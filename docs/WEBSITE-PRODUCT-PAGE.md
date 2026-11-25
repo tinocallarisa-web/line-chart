@@ -34,9 +34,10 @@ Video: https://www.youtube.com/watch?v=R7EQ3PDNhMs
 ### What's new in 1.0.1.0
 - **Accessibility card:** high contrast on demand (Auto, following Windows, or On), focus outline colour and width,
   and a minimum text size for every text in the chart.
-- **Select a series, filter the whole series:** a click on a legend item, a line or its end label filters other
-  visuals by every period of that series (before, with several columns on the axis or legend, a single month).
-- **Series styles that stay:** colour, line style, width and markers are kept by legend value when a filter hides
+- **Select a series, filter the whole series:** with a Legend field, a click on a legend item, a line or its end
+  label filters other visuals by every period of that series, up to 1,000 rows per selection (before, with several
+  columns on the axis or legend, a single month). A click on a point filters that point.
+- **Series styles that stay:** colour, line style, width and markers (first 40 legend values) are kept by legend value when a filter hides
   part of the data.
 - **Large tables:** the chart asks Power BI for the rest of the data, in Power BI Desktop too.
 
@@ -53,9 +54,9 @@ Video: https://www.youtube.com/watch?v=R7EQ3PDNhMs
 - Trend line (linear or moving average), peaks and lows, smooth lines that never overshoot the data
 - Zoom with Ctrl + mouse wheel or the keyboard, optional zoom slider, Y axis that fits the zoomed range
 - Sort categories, source note under the chart
-- Colour, line style, width and markers per series; conditional formatting (*fx*) on the series colour (without a legend) and on the target line
+- Colour, line style, width and markers per series (first 40 legend values); conditional formatting (*fx*) on the series colour (without a legend) and on the target line
 - Report theme (default) and Classic templates; setup guide and start screen
-- Cross-filtering by point or by whole series, multi-select, highlight, bookmarks, context menu, report page tooltips
+- Cross-filtering by point, or by whole series with a Legend field (up to 1,000 rows per selection), multi-select, highlight, bookmarks, context menu, report page tooltips
 - Keyboard navigation, screen-reader descriptions, high contrast, and an Accessibility card (high contrast on demand,
   focus outline, minimum text size)
 - Number format of each measure, dynamic format strings included; format on the canvas; 12 languages

@@ -51,7 +51,7 @@ Left out: `small multiples`, `annotations` (functions, not problems), `year over
 
 ## Description
 
-*(1.0.1.0: 4,051 characters as text; 4,507 as the HTML that is pasted, 4,555 counting CRLF; limit 5,000)*
+*(1.0.1.0: 4,189 characters as text; 4,645 as the HTML that is pasted, 4,693 counting CRLF; limit 5,000)*
 
 Paste the **HTML**, not this text: `python C:\tcviz\utillaje\ficha_html.py "C:\tcviz\dev\LineChart"` writes
 `docs/APPSOURCE-DESCRIPTION.html` (default format: `<strong>` titles with an emoji, no inline styles; 1.0.0.0 was
@@ -72,7 +72,7 @@ FREE: A COMPLETE LINE CHART
 • Trend line (linear or moving average), peaks and lows, smooth lines that never overshoot the data
 • Zoom with Ctrl + mouse wheel or the keyboard, an optional zoom slider and a Y axis that fits the zoomed range
 • Categories sorted by value or alphabetically, and a source note
-• Report theme by default, colour and line style per series, conditional formatting (fx) on the series colour (without a legend) and on the target line
+• Report theme by default, colour and line style per series (first 40 legend values), conditional formatting (fx) on the series colour (without a legend) and on the target line
 
 PRO: THE CONTEXT AROUND THE NUMBERS
 • Events: vertical lines with their text, straight from a column of your own Events table
@@ -86,7 +86,7 @@ FREE AND PRO
 The free version is a complete, correct line chart, with plan, gap shading and target line included; field and row limits are the same in both. Pro adds the context. Turn on a Pro feature while editing without a licence and it is drawn working on your own data under a "Pro preview" watermark; report readers without a licence see the free chart.
 
 WORKS LIKE A NATIVE VISUAL
-• Click a point, or a legend item, line or end label to filter by the whole series; Ctrl+click for several, highlight from other visuals, bookmarks, drilldown on a hierarchy, context menu, report page tooltips
+• Click a point to filter by it; with a Legend field, click a legend item, line or end label to filter by the whole series (up to 1,000 rows per selection); Ctrl+click for several, highlight from other visuals, bookmarks, drilldown on a hierarchy, context menu, report page tooltips
 • Keyboard navigation, screen-reader descriptions, high contrast and a layout that adapts down to a sparkline
 • Accessibility card: high contrast on demand, focus outline colour and width, and a minimum text size for every text in the chart
 • The number format of each measure, dynamic format strings included; format on the canvas; twelve languages; a setup guide and a start screen
@@ -105,7 +105,7 @@ Support: support@tcviz.com
 
 WHAT'S NEW IN 1.0.1.0
 • Accessibility card: high contrast without a Windows theme, focus outline, minimum text size
-• Selecting a series filters other visuals by the whole series; before, it could filter a single month
+• With a Legend field, selecting a series filters other visuals by the whole series (up to 1,000 rows); before, it could filter a single month
 • Series colours and line styles stay when a slicer hides part of the data
 • Large tables: the chart asks Power BI for the rest of the data, in Power BI Desktop too
 ```

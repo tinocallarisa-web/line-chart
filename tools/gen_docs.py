@@ -64,7 +64,7 @@ def page(title, sub, body, nav="", search=False):
 
 FIELDS = [
     ("Axis", "Grouping", "Yes, one field", "A date gives a real time axis: points sit at their true distance and a missing period is a gap. A date hierarchy, text or numbers give a category axis with evenly spaced points. A hierarchy gives drilldown."),
-    ("Legend", "Grouping", "No, one field", "One line per value (region, brand, team) for every measure. Colours, line style, width and markers are set per legend value and stay when a filter hides part of the data."),
+    ("Legend", "Grouping", "No, one field", "One line per value (region, brand, team) for every measure. Colours, line style, width and markers are set per legend value (first 40 legend values) and stay when a filter hides part of the data."),
     ("Values", "Measure", "Yes, up to 6", "One line per measure, on the left axis."),
     ("Secondary values", "Measure", "No, up to 3", "Measures in other units (margin %, units) on a right-hand axis."),
     ("Plan", "Measure", "No, one field", "Drawn as a thin dashed line. With gap shading on, the area between actual and plan is green above and red below. After the last actual period it carries on, marked “Actual | Plan”."),
@@ -89,9 +89,9 @@ FREE_PRO = [
     ("Smooth lines that never overshoot the data (monotone curve)", "✓", "✓"),
     ("Zoom with Ctrl + mouse wheel or the keyboard, optional zoom slider, Y axis that fits the zoomed range", "✓", "✓"),
     ("Sort categories, source note under the chart", "✓", "✓"),
-    ("Colour, line style, width and markers per series; conditional formatting (fx) on the series colour (without a legend) and on the target line", "✓", "✓"),
+    ("Colour, line style, width and markers per series (first 40 legend values); conditional formatting (fx) on the series colour (without a legend) and on the target line", "✓", "✓"),
     ("Report theme and Classic templates; setup guide and start screen", "✓", "✓"),
-    ("Cross-filtering by point or by whole series, multi-select, highlight, bookmarks, drilldown, context menu, report page tooltips", "✓", "✓"),
+    ("Cross-filtering by point, or by whole series with a Legend field (up to 1,000 rows per selection), multi-select, highlight, bookmarks, drilldown, context menu, report page tooltips", "✓", "✓"),
     ("Keyboard navigation, screen-reader descriptions, high contrast and an Accessibility card (high contrast on demand, focus outline, minimum text size)", "✓", "✓"),
     ("Number format of the measure, dynamic format strings included; format on the canvas; 12 languages", "✓", "✓"),
     ("Variance in the end label (“+4.2% vs plan” or the absolute difference)", "—", "✓"),
@@ -104,7 +104,7 @@ FREE_PRO = [
 
 FORMAT = [
     ("Style template", "Report theme (default: the colours of your report theme, like a native visual), Classic, and the six collection styles Boardroom, Ledger, Editorial, Signal, Aurora and Terrace (Pro). A template only fills what you have not set yourself. Setup guide: turn it back on to see the guide again."),
-    ("Lines", "Line width; markers (auto, on, off) and marker size; missing values — Break the line, Connect over the gap, or Zero; smooth lines; Show values as (Pro): value, index (first visible period = 100), % change from the first visible period, running total; the base follows the zoom. With Show values as on, the target line is not drawn (an absolute target has no index), and a series whose base value is 0 is left empty. <strong>Colors</strong>: colour, line style (solid, dashed, dotted), width and markers per series. Without a Legend field the colour accepts conditional formatting (fx) rules, evaluated per point on the markers."),
+    ("Lines", "Line width; markers (auto, on, off) and marker size; missing values — Break the line, Connect over the gap, or Zero; smooth lines; Show values as (Pro): value, index (first visible period = 100), % change from the first visible period, running total; the base follows the zoom. With Show values as on, the target line is not drawn (an absolute target has no index), and a series whose base value is 0 is left empty. <strong>Colors</strong>: colour, line style (solid, dashed, dotted), width and markers per series (first 40 legend values), kept by legend value when a filter hides part of the data. Without a Legend field the colour accepts conditional formatting (fx) rules, evaluated per point on the markers."),
     ("End labels", "Show; content — name and value, value, or name; maximum labels; text size; use the series colour or a fixed colour; variance vs plan or prior year (Pro): % or absolute."),
     ("Events (Pro)", "Show; line colour and style; show labels; label position top or bottom; text size. The full text is always in the tooltip."),
     ("Annotations (Pro)", "Show; text size and colour; background colour and opacity."),
@@ -117,7 +117,7 @@ FORMAT = [
     ("Small multiples (Pro)", "Columns (0 = automatic); space between panels; title size, colour, bold and alignment; panel background and border; shared Y axis."),
     ("Source note", "Show; text; size; colour; alignment. A line under the chart for the data source."),
     ("Interactions", "Zoom; Y auto-fit when zoomed; zoom slider."),
-    ("Accessibility", "High contrast — Auto (follow Windows) or On, which draws the high-contrast look without a Windows contrast theme; focus outline colour and width (1–6 px) for keyboard focus; minimum text size (7–24 pt), a floor for every text in the chart: axes, legend, end labels, events, annotations, source note and notices."),
+    ("Accessibility", "High contrast — Auto (follow Windows) or On, which draws the high-contrast look without a Windows contrast theme; focus outline colour and width (1–6 px) for keyboard focus; minimum text size (7–24 px), a floor for every text in the chart: axes, legend, end labels, events, annotations, source note and notices."),
 ]
 
 USE_CASES = [
@@ -155,9 +155,9 @@ TROUBLE = [
     ("A card next to the chart shows only one month of the selected series",
      "<p>That was a fault of the first version when the axis or the legend made several columns: selecting a series filtered a single row. From this version a series selected in the legend, on the line or on its end label filters the whole series.</p>"),
     ("A series went back to its automatic colour after a filter",
-     "<p>Fixed in this version: the colour, line style, width and markers of a series are kept by legend value, so a slicer that hides the first period of the series no longer resets them. Set the colour once more if it was lost with the first version.</p>"),
+     "<p>Fixed in this version: the colour, line style, width and markers of a series (first 40 legend values) are kept by legend value, so a slicer that hides the first period of the series no longer resets them. Set the colour once more if it was lost with the first version.</p>"),
     ("Power BI Desktop says the report has changes I did not make",
-     "<p>Reports made with the first version are updated once, the first time they are opened for editing with this version, to keep the series colours by legend value. Save the report: this update happens only once.</p>"),
+     "<p>Reports made with the first version are updated once, the first time they are opened for editing with this version and saved (republish it to the service), to keep the series colours by legend value. Reading view saves nothing. After that save, the update does not happen again.</p>"),
     ("“N values without a date on the axis”",
      "<p>Some rows have a blank date. They cannot be placed on a time axis, so they are left out and counted in the note. Check the relationship between your fact table and the calendar.</p>"),
     ("Gap shading or the variance label does not appear",
@@ -197,7 +197,7 @@ FAQ = [
     ("Does it follow my report theme?",
      "<p>Yes. <strong>Report theme</strong> is the default template: series colours and text come from your theme, like a native visual. Colours you set yourself always win.</p>"),
     ("What does selecting a series filter?",
-     "<p>The whole series: every period of that legend value. Click its legend item, its line or its end label. With small multiples, a click in a panel selects the series in that panel only, and the legend selects it in every panel. "
+     "<p>With a Legend field, the whole series: every period of that legend value, up to 1,000 rows per selection. Click its legend item, its line or its end label. With small multiples, a click in a panel selects the series in that panel only, and the legend selects it in every panel. "
      "A click on a point filters that point only. Right-click on a series opens the Power BI context menu for the series; right-click on a point opens it for that point.</p>"),
     ("Do bookmarks keep my selection?",
      "<p>Bookmarks keep the series and points you select and the filters of the page. Like every Power BI visual, they do not keep formatting.</p>"),
@@ -255,8 +255,8 @@ on the timeline, the variance in the end label, small multiples, “Show values 
 {video}
 <div class="card"><h3>What's new in {VERSION}</h3><ul>
 <li>New <strong>Accessibility</strong> card: high contrast on demand, focus outline colour and width, minimum text size.</li>
-<li>Selecting a series (legend, line or end label) filters other visuals by the whole series, not one month.</li>
-<li>Series colour, line style, width and markers stay when a filter hides part of the data.</li>
+<li>With a Legend field, selecting a series (legend, line or end label) filters other visuals by the whole series, not one month (up to 1,000 rows per selection).</li>
+<li>Series colour, line style, width and markers (first 40 legend values) stay when a filter hides part of the data.</li>
 <li>Large tables: the visual asks Power BI for the rest of the data, in Power BI Desktop too.</li>
 </ul><p><a href="changelog.html">Full changelog</a></p></div>
 <h2 id="quickstart">Quick Start</h2>
@@ -328,7 +328,7 @@ names it. Reading view shows the free chart. Pro is sold per user on Microsoft A
 <h2 id="interaction">Selection, zoom and interaction</h2>
 <div class="card">
 <ul>
-<li>Click a point to filter the rest of the page by that point. With a Legend field, click a legend item, a line or its end label to select the whole series: other visuals are filtered by every period of it. Ctrl/Cmd + click adds; click again or click the background to clear.</li>
+<li>Click a point to filter the rest of the page by that point. With a Legend field, click a legend item, a line or its end label to select the whole series: other visuals are filtered by every period of it, up to 1,000 rows per selection. Ctrl/Cmd + click adds; click again or click the background to clear.</li>
 <li>With small multiples, a click in a panel selects the series in that panel; the legend selects it in every panel.</li>
 <li>A selection of more than 1,000 rows is shown in the chart only, with the notice “Too many rows to filter other visuals (N) — select fewer items”.</li>
 <li>Highlight: when another visual filters this one, the highlighted values are drawn over a faded line.</li>
@@ -376,8 +376,9 @@ def privacy():
 <h2>1. Overview</h2>
 <p>{NAME} is a Power BI custom visual developed by TCViz (Tino Callarisa). This policy describes how data is handled when you use it.</p>
 <h2>2. Data collection</h2>
-<p>The visual <strong>does not collect, transmit or store any data</strong>. Every calculation — gaps, gap shading, trend lines, peaks,
+<p>The visual <strong>does not collect or transmit any data</strong>. Every calculation — gaps, gap shading, trend lines, peaks,
 variances, index and running totals — happens inside Power BI, on the data of your report.</p>
+<p>To keep per-series styles, the visual saves inside the report, as a hidden formatting property, the legend values you have styled. Nothing leaves the report.</p>
 <h2>3. No network access</h2>
 <p>The visual declares <strong>no network privileges</strong> (<code>"privileges": []</code>), so Power BI does not let it make any web request.
 Everything it draws, including the start-screen icon, is bundled inside the visual.</p>

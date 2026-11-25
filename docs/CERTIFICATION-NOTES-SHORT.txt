@@ -17,14 +17,13 @@ by one persistProperties per change while editing, never in selection callbacks)
 Reports from 1.0.0.0 migrate once when opened in edit mode.
 
 HOW TO TEST SERIES SELECTION (LineChart_sample.pbix, page 2, Legend = Region)
-1. Add a Card with Sum of the same measure next to the chart.
+1. Add a Card with [Net sales] next to the chart.
 2. Click a legend item, the line or its end label: the card shows the total of the whole
 series, not one month. Ctrl+click adds a series; click the background to clear.
 3. Click a point: the card shows that point only. Right-click a series and a point.
-4. Small multiples (page 3): a click in a panel selects the series in that panel; the
-legend selects it in every panel.
-5. Limit: put a daily date on Axis with several years, then select several series until
-the selection passes 1,000 rows: the notice appears and the card is not filtered.
+4. Small multiples (page 3; edit mode; Pro preview without a licence): a click in a panel
+selects the series in that panel; the legend selects it in every panel.
+Selections above 1,000 rows are kept inside the visual with a notice; select() is not called.
 
 TESTING PRO - NO KEY: Pro comes from the AppSource plan via IVisualLicenseManager. In
 edit mode without licence, Pro features are drawn under a "Pro preview" watermark with

@@ -4,7 +4,7 @@ A Power BI custom visual: a line chart for business time series that answers "ar
 prior year with the gap shaded green or red, the plan carried on past the last actual month, the last value at the end of
 every line, and an empty period drawn as a gap, never as a zero. Free: real date axis, several measures with a legend and a
 secondary axis, end labels, plan / prior year / forecast, gap shading against plan (or prior year), target and trend lines, zoom,
-cross-filtering by point or by whole series, and an Accessibility card (high contrast, focus outline, minimum text size).
+cross-filtering by point or, with a Legend field, by whole series, and an Accessibility card (high contrast, focus outline, minimum text size).
 Pro adds events and annotations on the timeline, the variance in the end label, small multiples, "Show values as" (index,
 % change, running total) and six collection styles.
 

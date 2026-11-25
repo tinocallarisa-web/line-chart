@@ -151,8 +151,9 @@
 <h2>1. Overview</h2>
 <p>Line Chart by TCViz is a Power BI custom visual developed by TCViz (Tino Callarisa). This policy describes how data is handled when you use it.</p>
 <h2>2. Data collection</h2>
-<p>The visual <strong>does not collect, transmit or store any data</strong>. Every calculation — gaps, gap shading, trend lines, peaks,
+<p>The visual <strong>does not collect or transmit any data</strong>. Every calculation — gaps, gap shading, trend lines, peaks,
 variances, index and running totals — happens inside Power BI, on the data of your report.</p>
+<p>To keep per-series styles, the visual saves inside the report, as a hidden formatting property, the legend values you have styled. Nothing leaves the report.</p>
 <h2>3. No network access</h2>
 <p>The visual declares <strong>no network privileges</strong> (<code>"privileges": []</code>), so Power BI does not let it make any web request.
 Everything it draws, including the start-screen icon, is bundled inside the visual.</p>
